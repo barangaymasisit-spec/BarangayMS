@@ -205,6 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     const passwordToggle = document.querySelector('.password-toggle');
     let rawPassword = '';
     let passwordVisible = false;
+    let hideTimer = null;
 
     function renderPassword() {
         if (passwordVisible) {
@@ -218,11 +219,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         passwordInput.setSelectionRange(passwordInput.value.length, passwordInput.value.length);
     }
 
+    function clearHideTimer() {
+        if (hideTimer) {
+            clearTimeout(hideTimer);
+            hideTimer = null;
+        }
+    }
+
+    function scheduleHidePassword() {
+        clearHideTimer();
+        hideTimer = setTimeout(() => {
+            if (passwordVisible) {
+                passwordVisible = false;
+                renderPassword();
+                passwordToggle.setAttribute('aria-pressed', 'false');
+                passwordToggle.setAttribute('aria-label', 'Show password');
+                passwordToggle.innerHTML = '<i class="fa-solid fa-eye" aria-hidden="true"></i>';
+            }
+        }, 1500);
+    }
+
     if (passwordInput && passwordValue) {
         passwordInput.addEventListener('input', function () {
             const typedValue = this.value;
             if (passwordVisible) {
                 rawPassword = typedValue;
+                scheduleHidePassword();
             } else {
                 rawPassword = typedValue.replace(/•/g, '');
             }
@@ -233,6 +255,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (passwordInput && passwordToggle) {
         passwordToggle.addEventListener('click', function () {
             passwordVisible = !passwordVisible;
+            clearHideTimer();
+            if (passwordVisible) {
+                scheduleHidePassword();
+            }
             renderPassword();
             this.setAttribute('aria-pressed', String(passwordVisible));
             this.setAttribute('aria-label', passwordVisible ? 'Hide password' : 'Show password');
