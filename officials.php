@@ -103,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'ad
     } elseif ($adminId === 0 && strlen($password) < 6) {
         $officialError = 'A new administrator password must be at least 6 characters.';
     } else {
-        $stmt = $conn->prepare('SELECT id FROM users WHERE (username = ? OR email = ?) AND id <> ? LIMIT 1');
+        $stmt = $conn->prepare('SELECT id FROM users WHERE (BINARY username = ? OR email = ?) AND id <> ? LIMIT 1');
         $stmt->bind_param('ssi', $username, $email, $adminId);
         $stmt->execute();
         $duplicate = $stmt->get_result()->fetch_assoc();
@@ -201,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
         if ($officialError !== '') {
             $editOfficialId = $officialId;
         } else {
-        $stmt = $conn->prepare('SELECT id FROM users WHERE (username = ? OR email = ?) AND id <> ? LIMIT 1');
+        $stmt = $conn->prepare('SELECT id FROM users WHERE (BINARY username = ? OR email = ?) AND id <> ? LIMIT 1');
         $stmt->bind_param('ssi', $username, $email, $officialId);
         $stmt->execute();
         $duplicate = $stmt->get_result()->fetch_assoc();
@@ -422,13 +422,20 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         'official_status_filter' => $statusFilter,
         'official_role_filter' => $roleFilter,
     ];
+    $anchor = match ($pageParam) {
+        'official_page' => '#officials-list',
+        'health_worker_page' => '#health-workers-list',
+        'security_force_page' => '#security-forces-list',
+        default => '',
+    };
+
     echo '<div class="pagination-bar">';
     echo '<span class="page-status">Page ' . (int)$pageData['page'] . ' of ' . (int)$pageData['total_pages'] . '</span><div class="btn-group">';
     if ((int)$pageData['page'] > 1) {
-        echo '<a class="btn btn-sm btn-outline-secondary" href="officials.php?' . h(http_build_query(array_merge($query, [$pageParam => (int)$pageData['page'] - 1]))) . '">Previous</a>';
+        echo '<a class="btn btn-sm btn-outline-secondary" href="officials.php?' . h(http_build_query(array_merge($query, [$pageParam => (int)$pageData['page'] - 1]))) . $anchor . '">Previous</a>';
     }
     if ((int)$pageData['page'] < (int)$pageData['total_pages']) {
-        echo '<a class="btn btn-sm btn-outline-secondary" href="officials.php?' . h(http_build_query(array_merge($query, [$pageParam => (int)$pageData['page'] + 1]))) . '">Next</a>';
+        echo '<a class="btn btn-sm btn-outline-secondary" href="officials.php?' . h(http_build_query(array_merge($query, [$pageParam => (int)$pageData['page'] + 1]))) . $anchor . '">Next</a>';
     }
     echo '</div></div>';
 }
@@ -590,7 +597,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
         </div>
 
-        <div class="row mt-4">
+        <div id="admin-form" class="row mt-4">
             <div class="col-12">
                 <div class="content-card">
                     <div class="card-header-custom">
@@ -612,7 +619,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             </div>
         </div>
 
-        <div class="row mt-4">
+        <div id="personnel-form" class="row mt-4">
             <div class="col-12">
                 <div class="content-card">
                     <div class="card-header-custom">
@@ -638,7 +645,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             </div>
         </div>
 
-        <div class="row mt-4">
+        <div id="officials-list" class="row mt-4">
 
             <div class="col-12">
 
@@ -721,7 +728,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                                             </td>
 
                                             <td>
-                                                <a href="officials.php?edit=<?php echo (int)$official['id']; ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
+                                                <a href="officials.php?edit=<?php echo (int)$official['id']; ?>#personnel-form" class="btn btn-sm btn-outline-secondary">Edit</a>
                                                 <?php if ((int)$official['id'] !== (int)($_SESSION['user_id'] ?? 0)): ?>
                                                     <form action="officials.php" method="post" class="d-inline" onsubmit="return confirm('Delete this official account?');">
                                                         <?php echo csrfField(); ?>

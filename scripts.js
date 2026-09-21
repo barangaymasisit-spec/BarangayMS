@@ -30,6 +30,23 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
+    document.querySelectorAll('a[href]').forEach(function (link) {
+        const href = link.getAttribute('href') || '';
+        if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:') || link.target === '_blank') {
+            return;
+        }
+
+        const linkUrl = new URL(href, window.location.href);
+        if (linkUrl.origin !== window.location.origin || linkUrl.pathname !== window.location.pathname) {
+            return;
+        }
+
+        link.addEventListener('click', function () {
+            sessionStorage.setItem('pageScrollY', String(window.scrollY));
+            sessionStorage.setItem('pageScrollPath', window.location.pathname);
+        });
+    });
+
     const savedTarget = sessionStorage.getItem('sidebarTarget');
     const savedScroll = Number(sessionStorage.getItem('sidebarScrollY') || 0);
     const currentPage = window.location.pathname.split('/').pop() || '';
@@ -39,8 +56,16 @@ document.addEventListener('DOMContentLoaded', function () {
         window.scrollTo({ top: savedScroll, left: 0, behavior: 'auto' });
     }
 
+    const pageScrollPath = sessionStorage.getItem('pageScrollPath');
+    const pageScrollY = Number(sessionStorage.getItem('pageScrollY') || 0);
+    if (pageScrollPath === window.location.pathname && pageScrollY > 0) {
+        window.scrollTo({ top: pageScrollY, left: 0, behavior: 'auto' });
+    }
+
     sessionStorage.removeItem('sidebarTarget');
     sessionStorage.removeItem('sidebarScrollY');
+    sessionStorage.removeItem('pageScrollPath');
+    sessionStorage.removeItem('pageScrollY');
 
     document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function (form) {
         if (!form.querySelector('input[name="csrf_token"]')) {
