@@ -21,15 +21,22 @@ if (!in_array($role, ['admin', 'staff', 'health_worker', 'security_force', 'resi
     exit;
 }
 
+$allRolePages = [
+    'dashboard.php', 'residents.php', 'resident_form.php', 'household.php', 'officials.php', 'audit.php',
+    'certificates.php', 'certificate_form.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php',
+    'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'emergency.php', 'emergency_report.php', 'settings.php', 'logout.php', 'resident_dashboard.php',
+];
+
 $rolePages = [
+    'admin' => $allRolePages,
     'staff' => [
         'dashboard.php', 'residents.php', 'resident_form.php',
         'certificates.php', 'certificate_form.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php',
-        'complaints.php', 'complaint_form.php', 'appointments.php',
-        'appointment_form.php', 'logout.php',
+        'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'officials.php', 'settings.php', 'logout.php',
     ],
     'health_worker' => ['dashboard.php', 'residents.php', 'logout.php'],
     'security_force' => ['dashboard.php', 'emergency.php', 'logout.php'],
+    'resident' => ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php', 'logout.php'],
 ];
 if (isset($rolePages[$role]) && !in_array(basename($_SERVER['PHP_SELF']), $rolePages[$role], true)) {
     header('Location: dashboard.php?denied=1');

@@ -3,9 +3,17 @@ require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/db.php';
 applyNoStoreHeaders();
 
+if (isset($_SESSION['user_id']) && !empty($_SESSION['role'])) {
+    $redirectPage = ($_SESSION['role'] === 'resident') ? 'resident_dashboard.php' : 'dashboard.php';
+    if (in_array($_SESSION['role'], ['admin', 'staff', 'health_worker', 'security_force', 'resident'], true)) {
+        header('Location: ' . $redirectPage);
+        exit;
+    }
+}
+
 if (isset($_SESSION['user_id'])) {
     $_SESSION = [];
-    session_regenerate_id(true);
+    session_destroy();
 }
 
 $error = '';
@@ -202,7 +210,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (passwordVisible) {
             passwordInput.value = rawPassword;
         } else if (rawPassword.length > 0) {
-            passwordInput.value = '•'.repeat(Math.max(0, rawPassword.length - 1)) + rawPassword.slice(-1);
+            passwordInput.value = '•'.repeat(rawPassword.length);
         } else {
             passwordInput.value = '';
         }
@@ -213,13 +221,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (passwordInput && passwordValue) {
         passwordInput.addEventListener('input', function () {
             const typedValue = this.value;
-            const maskedPrefix = rawPassword.length > 1 ? '•'.repeat(rawPassword.length - 1) : '';
-            if (!passwordVisible && typedValue.startsWith(maskedPrefix) && typedValue.length >= maskedPrefix.length) {
-                rawPassword = rawPassword.slice(0, maskedPrefix.length) + typedValue.slice(maskedPrefix.length);
+            if (passwordVisible) {
+                rawPassword = typedValue;
             } else {
                 rawPassword = typedValue.replace(/•/g, '');
             }
-            passwordVisible = false;
             renderPassword();
         });
     }

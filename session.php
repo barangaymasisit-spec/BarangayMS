@@ -4,6 +4,26 @@ final class DatabaseSessionHandler implements SessionHandlerInterface {
     private ?mysqli $connection = null;
     private static bool $tableChecked = false;
 
+    public static function databaseAvailable(): bool {
+        $host = getenv('MYSQLHOST') ?: getenv('DB_HOST') ?: 'localhost';
+        $port = (int)(getenv('MYSQLPORT') ?: getenv('DB_PORT') ?: 3306);
+        $user = getenv('MYSQLUSER') ?: getenv('DB_USER') ?: 'root';
+        $password = getenv('MYSQLPASSWORD') ?: getenv('DB_PASS') ?: '';
+        $database = getenv('MYSQLDATABASE') ?: getenv('DB_NAME') ?: 'dbbarangaymanagement';
+
+        try {
+            $conn = @new mysqli($host, $user, $password, $database, $port);
+            if ($conn->connect_error) {
+                return false;
+            }
+            $conn->close();
+            return true;
+        } catch (Throwable $e) {
+            error_log('Database session fallback triggered: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     public function open(string $path, string $name): bool {
         $host = getenv('MYSQLHOST') ?: getenv('DB_HOST') ?: 'localhost';
         $port = (int)(getenv('MYSQLPORT') ?: getenv('DB_PORT') ?: 3306);
@@ -11,29 +31,37 @@ final class DatabaseSessionHandler implements SessionHandlerInterface {
         $password = getenv('MYSQLPASSWORD') ?: getenv('DB_PASS') ?: '';
         $database = getenv('MYSQLDATABASE') ?: getenv('DB_NAME') ?: 'dbbarangaymanagement';
 
-        $this->connection = @new mysqli($host, $user, $password, $database, $port);
-        if ($this->connection->connect_error) {
+        try {
+            $this->connection = @new mysqli($host, $user, $password, $database, $port);
+            if (!$this->connection || $this->connection->connect_error) {
+                $this->connection = null;
+                return false;
+            }
+            $this->connection->set_charset('utf8mb4');
+            if (!self::$tableChecked) {
+                $created = $this->connection->query(
+                    'CREATE TABLE IF NOT EXISTS php_sessions (
+                        id VARCHAR(128) NOT NULL,
+                        data MEDIUMBLOB NOT NULL,
+                        last_activity INT UNSIGNED NOT NULL,
+                        PRIMARY KEY (id),
+                        KEY idx_php_sessions_last_activity (last_activity)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+                );
+                if (!$created) {
+                    error_log('PHP session table initialization failed: ' . $this->connection->error);
+                    $this->connection->close();
+                    $this->connection = null;
+                    return false;
+                }
+                self::$tableChecked = true;
+            }
+            return true;
+        } catch (Throwable $e) {
+            error_log('Database session open failed: ' . $e->getMessage());
             $this->connection = null;
             return false;
         }
-        $this->connection->set_charset('utf8mb4');
-        if (!self::$tableChecked) {
-            $created = $this->connection->query(
-                'CREATE TABLE IF NOT EXISTS php_sessions (
-                    id VARCHAR(128) NOT NULL,
-                    data MEDIUMBLOB NOT NULL,
-                    last_activity INT UNSIGNED NOT NULL,
-                    PRIMARY KEY (id),
-                    KEY idx_php_sessions_last_activity (last_activity)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
-            );
-            if (!$created) {
-                error_log('PHP session table initialization failed: ' . $this->connection->error);
-                return false;
-            }
-            self::$tableChecked = true;
-        }
-        return true;
     }
 
     public function close(): bool {
@@ -264,8 +292,14 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
-    $sessionHandler = new DatabaseSessionHandler();
-    session_set_save_handler($sessionHandler, true);
+
+    if (DatabaseSessionHandler::databaseAvailable()) {
+        $sessionHandler = new DatabaseSessionHandler();
+        session_set_save_handler($sessionHandler, true);
+    } else {
+        error_log('Database session store unavailable; falling back to PHP file-based sessions.');
+    }
+
     ini_set('session.use_strict_mode', '1');
     session_start();
 }
