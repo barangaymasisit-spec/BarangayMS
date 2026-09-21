@@ -55,7 +55,6 @@ function ensureBarangaySettingsSchema(mysqli $conn): void {
 }
 
 ensureBarangaySettingsSchema($conn);
-ensureCaseSensitiveUsernameSchema($conn);
 
 function h(mixed $value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -224,31 +223,12 @@ function ensureLoginAttemptsTable(mysqli $conn): void {
     );
 }
 
-function ensureCaseSensitiveUsernameSchema(mysqli $conn): void {
-    $result = $conn->query("SHOW FULL COLUMNS FROM users WHERE Field = 'username'");
-    if (!$result || $result->num_rows === 0) {
-        return;
-    }
-
-    $column = $result->fetch_assoc();
-    if (!$column) {
-        return;
-    }
-
-    $collation = strtolower((string)($column['Collation'] ?? ''));
-    if ($collation === 'utf8mb4_bin' || str_contains($collation, '_bin')) {
-        return;
-    }
-
-    $conn->query('ALTER TABLE users MODIFY username VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL');
-}
-
 function loginRequestIp(): string {
     return (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
 }
 
 function loginIdentifierHash(string $value): string {
-    return hash_hmac('sha256', trim($value), authCookieSecret());
+    return hash_hmac('sha256', strtolower(trim($value)), authCookieSecret());
 }
 
 function isLoginRateLimited(mysqli $conn, string $username): bool {
