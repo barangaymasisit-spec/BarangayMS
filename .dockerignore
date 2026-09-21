@@ -1,0 +1,10 @@
+.git
+.claude
+uploads/*
+backups
+cookies.txt
+headers.txt
+resp_headers.txt
+debug_db.php
+debug_insert.php
+install_db.php

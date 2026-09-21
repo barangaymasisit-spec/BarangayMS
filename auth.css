@@ -1,0 +1,283 @@
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:Arial, Helvetica, sans-serif;
+}
+
+body{
+    background-color:#0B4A9E;
+    background-image:linear-gradient(rgba(0,0,0,.38),rgba(0,0,0,.38)),url('barangay.jpg');
+    background-position:center;
+    background-repeat:no-repeat;
+    background-size:cover;
+    background-attachment:fixed;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    min-height:100vh;
+}
+
+.location-banner{
+    position:fixed;
+    left:28px;
+    bottom:24px;
+    z-index:2;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    color:#fff;
+    text-shadow:0 1px 3px rgba(0,0,0,.5);
+}
+
+.location-banner strong,
+.location-banner small{
+    display:block;
+}
+
+.location-banner strong{
+    font-size:14px;
+}
+
+.location-banner small{
+    margin-top:4px;
+    font-size:11px;
+    font-style:italic;
+}
+
+.location-pin{
+    position:relative;
+    display:block;
+    width:16px;
+    height:16px;
+    border:4px solid #fff;
+    border-radius:50% 50% 50% 0;
+    transform:rotate(-45deg);
+    filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));
+}
+
+.location-pin span{
+    position:absolute;
+    width:5px;
+    height:5px;
+    top:2px;
+    left:2px;
+    border-radius:50%;
+    background:#fff;
+}
+
+.container{
+    width:100%;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    padding:20px;
+}
+
+.login-box{
+    width:450px;
+    background:#fff;
+    padding:40px;
+    border-radius:20px;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+    text-align:center;
+}
+
+.logo{
+    width:130px;
+    margin-bottom:20px;
+}
+
+.login-box h2{
+    color:#0B4A9E;
+    font-size:32px;
+    margin-bottom:10px;
+}
+
+.login-box p{
+    color:#666;
+    margin-bottom:30px;
+    font-size:16px;
+}
+
+.error-message,
+.success-message{
+    text-align:left;
+    padding:14px 18px;
+    border-radius:15px;
+    margin-bottom:25px;
+    font-size:15px;
+    font-weight:bold;
+}
+
+.error-message{
+    background:#fdecea;
+    border:2px solid #E53935;
+    color:#c62828;
+}
+
+.success-message{
+    background:#e8f5e9;
+    border:2px solid #2e7d32;
+    color:#2e7d32;
+}
+
+.input-group{
+    text-align:left;
+    margin-bottom:20px;
+}
+
+.input-group label{
+    display:block;
+    color:#333;
+    margin-bottom:8px;
+    font-weight:bold;
+}
+
+.input-group input{
+    width:100%;
+    padding:15px;
+    border:2px solid #d94d4d;
+    border-radius:15px;
+    background:#fff;
+    font-size:16px;
+    outline:none;
+    transition:.3s;
+}
+
+.input-group input:focus{
+    border-color:#0B4A9E;
+}
+
+.password-field{
+    position:relative;
+}
+
+.password-field input{
+    padding-right:52px;
+}
+
+.password-field input[type="hidden"]{
+    display:none;
+}
+
+.password-toggle{
+    position:absolute;
+    top:50%;
+    right:8px;
+    width:38px;
+    height:38px;
+    padding:0;
+    transform:translateY(-50%);
+    background:transparent;
+    color:#0B4A9E;
+    font-size:17px;
+}
+
+.password-toggle:hover{
+    background:transparent;
+    color:#E53935;
+    transform:translateY(-50%);
+}
+
+.options{
+    display:flex;
+    justify-content:flex-start;
+    margin:20px 0;
+}
+
+.options label{
+    color:#333;
+    font-size:15px;
+    display:flex;
+    align-items:center;
+}
+
+.options input{
+    margin-right:8px;
+    transform:scale(1.1);
+}
+
+button{
+    width:100%;
+    padding:15px;
+    border:none;
+    border-radius:15px;
+    font-size:20px;
+    font-weight:bold;
+    color:white;
+    cursor:pointer;
+    background:linear-gradient(90deg,#0B4A9E,#E53935);
+    transition:.3s;
+}
+
+button:hover{
+    transform:translateY(-2px);
+    box-shadow:0 8px 15px rgba(0,0,0,.2);
+}
+
+.links{
+    margin-top:25px;
+    text-align:center;
+}
+
+.forgot-password{
+    display:block;
+    margin-bottom:20px;
+    color:#0B4A9E;
+    text-decoration:none;
+    font-weight:bold;
+}
+
+.forgot-password:hover{
+    text-decoration:underline;
+}
+
+.links p{
+    color:#666;
+    font-size:15px;
+}
+
+.create-account{
+    color:#E53935;
+    text-decoration:none;
+    font-weight:bold;
+}
+
+.create-account:hover{
+    text-decoration:underline;
+}
+
+@media(max-width:500px){
+
+.location-banner{
+    left:16px;
+    bottom:14px;
+}
+
+.location-banner strong{
+    font-size:12px;
+}
+
+.location-banner small{
+    font-size:10px;
+}
+
+.login-box{
+    width:100%;
+    padding:30px 25px;
+}
+
+.logo{
+    width:100px;
+}
+
+.login-box h2{
+    font-size:26px;
+}
+
+button{
+    font-size:18px;
+}
+
+}
