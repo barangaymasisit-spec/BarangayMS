@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$residentExists) {
                 $error = 'The information does not match an existing resident record.';
             } else {
-                $stmt = $conn->prepare('SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1');
+                $stmt = $conn->prepare('SELECT id FROM users WHERE (BINARY username = ? OR email = ?) LIMIT 1');
                 $stmt->bind_param('ss', $old['username'], $old['email']);
                 $stmt->execute();
                 $exists = $stmt->get_result()->fetch_assoc();

@@ -20,6 +20,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = $_POST['password'] ?? '';
     $remember = isset($_POST['remember']);
 
+    clearPersistentAuthCookie();
+    unset($_COOKIE['BARANGAY_AUTH']);
+
     if ($username === '' || $password === '') {
         $error = 'Please enter both username and password.';
     } elseif (isLoginRateLimited($conn, $username)) {

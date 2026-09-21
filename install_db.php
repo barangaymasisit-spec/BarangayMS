@@ -40,7 +40,7 @@ $adminPassword = bin2hex(random_bytes(12));
 $adminPasswordHash = password_hash($adminPassword, PASSWORD_DEFAULT);
 $adminCreated = false;
 
-$checkAdmin = $connection->prepare('SELECT id FROM users WHERE username = ? LIMIT 1');
+$checkAdmin = $connection->prepare('SELECT id FROM users WHERE BINARY username = ? LIMIT 1');
 $checkAdmin->bind_param('s', $adminUsername);
 $checkAdmin->execute();
 $checkAdmin->store_result();
