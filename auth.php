@@ -153,16 +153,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
 
             <div class="input-group">
-                <label for="passwordDisplay">Password</label>
+                <label for="password">Password</label>
                 <div class="password-field">
                     <input
-                        type="text"
-                        id="passwordDisplay"
+                        type="password"
+                        id="password"
+                        name="password"
                         placeholder="Enter Password"
                         autocomplete="current-password"
                         required
                     >
-                    <input type="hidden" id="password" name="password">
                     <button type="button" class="password-toggle" aria-label="Show password" aria-pressed="false">
                         <i class="fa-solid fa-eye" aria-hidden="true"></i>
                     </button>
@@ -200,70 +200,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </div>
 
 <script>
-    const passwordInput = document.getElementById('passwordDisplay');
-    const passwordValue = document.getElementById('password');
+    const passwordInput = document.getElementById('password');
     const passwordToggle = document.querySelector('.password-toggle');
-    let rawPassword = '';
-    let passwordVisible = false;
-    let hideTimer = null;
-
-    function renderPassword() {
-        if (passwordVisible) {
-            passwordInput.value = rawPassword;
-        } else if (rawPassword.length > 0) {
-            passwordInput.value = '•'.repeat(rawPassword.length);
-        } else {
-            passwordInput.value = '';
-        }
-        passwordValue.value = rawPassword;
-        passwordInput.setSelectionRange(passwordInput.value.length, passwordInput.value.length);
-    }
-
-    function clearHideTimer() {
-        if (hideTimer) {
-            clearTimeout(hideTimer);
-            hideTimer = null;
-        }
-    }
-
-    function hidePasswordAfterIdle() {
-        clearHideTimer();
-        hideTimer = setTimeout(() => {
-            if (!passwordVisible) {
-                return;
-            }
-            passwordVisible = false;
-            renderPassword();
-            passwordToggle.setAttribute('aria-pressed', 'false');
-            passwordToggle.setAttribute('aria-label', 'Show password');
-            passwordToggle.innerHTML = '<i class="fa-solid fa-eye" aria-hidden="true"></i>';
-        }, 800);
-    }
-
-    if (passwordInput && passwordValue) {
-        passwordInput.addEventListener('input', function () {
-            const typedValue = this.value;
-            if (passwordVisible) {
-                rawPassword = typedValue;
-                hidePasswordAfterIdle();
-            } else {
-                rawPassword = typedValue.replace(/•/g, '');
-            }
-            renderPassword();
-        });
-    }
 
     if (passwordInput && passwordToggle) {
         passwordToggle.addEventListener('click', function () {
-            passwordVisible = !passwordVisible;
-            clearHideTimer();
-            renderPassword();
-            this.setAttribute('aria-pressed', String(passwordVisible));
-            this.setAttribute('aria-label', passwordVisible ? 'Hide password' : 'Show password');
-            this.innerHTML = '<i class="fa-solid ' + (passwordVisible ? 'fa-eye-slash' : 'fa-eye') + '" aria-hidden="true"></i>';
-            if (passwordVisible) {
-                hidePasswordAfterIdle();
-            }
+            const isPassword = passwordInput.type === 'password';
+            passwordInput.type = isPassword ? 'text' : 'password';
+            this.setAttribute('aria-pressed', String(isPassword));
+            this.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+            this.innerHTML = '<i class="fa-solid ' + (isPassword ? 'fa-eye-slash' : 'fa-eye') + '" aria-hidden="true"></i>';
+            passwordInput.focus();
         });
     }
 </script>
