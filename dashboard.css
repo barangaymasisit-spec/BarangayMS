@@ -349,6 +349,33 @@ tbody tr:hover{
     font-size:30px;
 }
 
+.trend-panel{
+    margin-top:24px;
+}
+
+.panel-header-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    margin-bottom:10px;
+}
+
+.trend-tag{
+    background:#eef4ff;
+    color:#0B4A9E;
+    border:1px solid rgba(11, 74, 158, 0.12);
+    border-radius:999px;
+    padding:6px 10px;
+    font-size:12px;
+    font-weight:600;
+}
+
+.trend-chart-container{
+    height:300px;
+    width:100%;
+}
+
 /* ==========================
    RESPONSIVE
 ========================== */

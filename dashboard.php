@@ -33,6 +33,73 @@ while ($row = $residentsResult->fetch_assoc()) {
     }
 }
 $specialTotal = array_sum($categoryCounts);
+
+$trendMonths = [];
+$trendLabels = [];
+$trendResidents = [];
+$trendAppointments = [];
+$trendComplaints = [];
+$trendCertificates = [];
+
+for ($i = 5; $i >= 0; $i--) {
+    $monthDate = date('Y-m-01', strtotime("-$i month"));
+    $monthKey = date('Y-m', strtotime($monthDate));
+    $trendMonths[] = $monthKey;
+    $trendLabels[] = date('M', strtotime($monthDate));
+}
+
+if ($trendMonths !== []) {
+    $monthRangeStart = $trendMonths[0] . '-01';
+    $monthRangeEnd = date('Y-m-01', strtotime('+1 month'));
+
+    $residentTrendStmt = $conn->prepare('SELECT DATE_FORMAT(date_registered, "%Y-%m") AS month_key, COUNT(*) AS total FROM residents WHERE date_registered >= ? AND date_registered < ? GROUP BY month_key');
+    $residentTrendStmt->bind_param('ss', $monthRangeStart, $monthRangeEnd);
+    $residentTrendStmt->execute();
+    $residentTrendRows = $residentTrendStmt->get_result();
+    $residentTrendMap = [];
+    while ($row = $residentTrendRows->fetch_assoc()) {
+        $residentTrendMap[$row['month_key']] = (int)$row['total'];
+    }
+    $residentTrendStmt->close();
+
+    $appointmentTrendStmt = $conn->prepare('SELECT DATE_FORMAT(appointment_date, "%Y-%m") AS month_key, COUNT(*) AS total FROM appointments WHERE appointment_date >= ? AND appointment_date < ? GROUP BY month_key');
+    $appointmentTrendStmt->bind_param('ss', $monthRangeStart, $monthRangeEnd);
+    $appointmentTrendStmt->execute();
+    $appointmentTrendRows = $appointmentTrendStmt->get_result();
+    $appointmentTrendMap = [];
+    while ($row = $appointmentTrendRows->fetch_assoc()) {
+        $appointmentTrendMap[$row['month_key']] = (int)$row['total'];
+    }
+    $appointmentTrendStmt->close();
+
+    $complaintTrendStmt = $conn->prepare('SELECT DATE_FORMAT(date_filed, "%Y-%m") AS month_key, COUNT(*) AS total FROM complaints WHERE date_filed >= ? AND date_filed < ? GROUP BY month_key');
+    $complaintTrendStmt->bind_param('ss', $monthRangeStart, $monthRangeEnd);
+    $complaintTrendStmt->execute();
+    $complaintTrendRows = $complaintTrendStmt->get_result();
+    $complaintTrendMap = [];
+    while ($row = $complaintTrendRows->fetch_assoc()) {
+        $complaintTrendMap[$row['month_key']] = (int)$row['total'];
+    }
+    $complaintTrendStmt->close();
+
+    $certificateTrendStmt = $conn->prepare('SELECT DATE_FORMAT(request_date, "%Y-%m") AS month_key, COUNT(*) AS total FROM certificates WHERE request_date >= ? AND request_date < ? GROUP BY month_key');
+    $certificateTrendStmt->bind_param('ss', $monthRangeStart, $monthRangeEnd);
+    $certificateTrendStmt->execute();
+    $certificateTrendRows = $certificateTrendStmt->get_result();
+    $certificateTrendMap = [];
+    while ($row = $certificateTrendRows->fetch_assoc()) {
+        $certificateTrendMap[$row['month_key']] = (int)$row['total'];
+    }
+    $certificateTrendStmt->close();
+
+    foreach ($trendMonths as $monthKey) {
+        $trendResidents[] = $residentTrendMap[$monthKey] ?? 0;
+        $trendAppointments[] = $appointmentTrendMap[$monthKey] ?? 0;
+        $trendComplaints[] = $complaintTrendMap[$monthKey] ?? 0;
+        $trendCertificates[] = $certificateTrendMap[$monthKey] ?? 0;
+    }
+}
+
 $recentActivity = $conn->query(
     "SELECT a.id, a.action, a.entity, a.details, a.created_at, CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS user_name
      FROM activity_logs a
@@ -184,6 +251,16 @@ $recentActivity = $conn->query(
 
             </div>
 
+            <div class="panel trend-panel">
+                <div class="panel-header-row">
+                    <h3>Service Activity Trend</h3>
+                    <span class="trend-tag">Last 6 months</span>
+                </div>
+                <div class="chart-container trend-chart-container">
+                    <canvas id="serviceTrendChart"></canvas>
+                </div>
+            </div>
+
         </section>
 
         <section class="panel" style="margin-top: 24px;">
@@ -238,6 +315,13 @@ $recentActivity = $conn->query(
         'lactating'     => $categoryCounts['Lactating Mother'],
         'ofw'           => $categoryCounts['OFW Family'],
         'fourPs'        => $categoryCounts['4Ps Beneficiary'],
+    ]); ?>;
+    window.serviceTrendData = <?php echo json_encode([
+        'labels' => $trendLabels,
+        'residents' => $trendResidents,
+        'appointments' => $trendAppointments,
+        'complaints' => $trendComplaints,
+        'certificates' => $trendCertificates,
     ]); ?>;
 </script>
 <script src="<?php echo asset('dashboard.js'); ?>"></script>
