@@ -11,7 +11,7 @@ $pendingCases = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status
 $ongoingCases = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Ongoing'")->fetch_row()[0] ?? 0);
 $resolvedCases = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved'")->fetch_row()[0] ?? 0);
 $pendingAppointments = (int)($conn->query("SELECT COUNT(*) FROM appointments WHERE status = 'Pending'")->fetch_row()[0] ?? 0);
-$officials = $conn->query("SELECT first_name, last_name, role FROM users WHERE role IN ('admin','staff') ORDER BY id ASC");
+$officials = $conn->query("SELECT first_name, last_name, role FROM users WHERE role IN ('admin','staff') ORDER BY id ASC LIMIT 10");
 
 $categoryCounts = [
     'Senior Citizen' => 0,
