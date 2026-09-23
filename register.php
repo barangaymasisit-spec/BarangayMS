@@ -178,6 +178,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         name="resident_number"
                         placeholder="Resident Number"
                         value="<?php echo h($old['resident_number']); ?>"
+                        readonly
+                        autocomplete="off"
+                        inputmode="none"
                         required>
                     </div>
 
@@ -287,6 +290,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
 </div>
+
+<script>
+    const firstNameInput = document.getElementById('first_name');
+    const lastNameInput = document.getElementById('last_name');
+    const residentNumberInput = document.getElementById('resident_number');
+
+    function lookupResidentNumber() {
+        if (!firstNameInput || !lastNameInput || !residentNumberInput) {
+            return;
+        }
+
+        const firstName = firstNameInput.value.trim();
+        const lastName = lastNameInput.value.trim();
+
+        if (firstName === '' || lastName === '') {
+            residentNumberInput.value = '';
+            return;
+        }
+
+        const params = new URLSearchParams({
+            first_name: firstName,
+            last_name: lastName
+        });
+
+        fetch('resident_lookup.php?' + params.toString())
+            .then((response) => response.json())
+            .then((data) => {
+                if (data && data.resident_number) {
+                    residentNumberInput.value = data.resident_number;
+                } else {
+                    residentNumberInput.value = '';
+                }
+            })
+            .catch(() => {
+                residentNumberInput.value = '';
+            });
+    }
+
+    if (firstNameInput && lastNameInput && residentNumberInput) {
+        firstNameInput.addEventListener('input', lookupResidentNumber);
+        lastNameInput.addEventListener('input', lookupResidentNumber);
+    }
+</script>
 
 </body>
 </html>
