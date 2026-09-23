@@ -169,6 +169,16 @@ $recentActivity = $conn->query(
 
         <!-- Main Content -->
 
+        <div class="panel trend-panel full-width-panel">
+            <div class="panel-header-row">
+                <h3>Service Activity Trend</h3>
+                <span class="trend-tag">Last 6 months</span>
+            </div>
+            <div class="chart-container trend-chart-container">
+                <canvas id="serviceTrendChart"></canvas>
+            </div>
+        </div>
+
         <section class="content">
 
             <!-- Barangay Officials -->
@@ -249,16 +259,6 @@ $recentActivity = $conn->query(
                     <h2><?php echo $totalHouseholds; ?></h2>
                 </div>
 
-            </div>
-
-            <div class="panel trend-panel">
-                <div class="panel-header-row">
-                    <h3>Service Activity Trend</h3>
-                    <span class="trend-tag">Last 6 months</span>
-                </div>
-                <div class="chart-container trend-chart-container">
-                    <canvas id="serviceTrendChart"></canvas>
-                </div>
             </div>
 
         </section>
