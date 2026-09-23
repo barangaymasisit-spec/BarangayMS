@@ -351,11 +351,6 @@ tbody tr:hover{
 
 .trend-panel{
     margin-top:24px;
-    margin-bottom:24px;
-}
-
-.full-width-panel{
-    width:100%;
 }
 
 .panel-header-row{
@@ -377,7 +372,7 @@ tbody tr:hover{
 }
 
 .trend-chart-container{
-    height:420px;
+    height:300px;
     width:100%;
 }
 
