@@ -251,13 +251,13 @@ $recentActivity = $conn->query(
 
             </div>
 
-            <div class="panel trend-panel">
+            <div class="panel trend-panel" style="display:block; visibility:visible; opacity:1;">
                 <div class="panel-header-row">
                     <h3>Service Activity Trend</h3>
                     <span class="trend-tag">Last 6 months</span>
                 </div>
-                <div class="chart-container trend-chart-container">
-                    <canvas id="serviceTrendChart"></canvas>
+                <div class="chart-container trend-chart-container" style="display:block; position:relative; min-height:500px; height:500px; width:100%;">
+                    <canvas id="serviceTrendChart" aria-label="Service Activity Trend Chart" role="img" style="display:block; width:100%; height:100%;"></canvas>
                 </div>
             </div>
 

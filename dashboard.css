@@ -379,13 +379,15 @@ tbody tr:hover{
 }
 
 .trend-chart-container{
-    height:470px;
+    height:500px;
+    min-height:500px;
     width:100%;
+    display:block;
 }
 
 @media (min-width: 1200px) {
     .trend-panel {
-        min-height: 560px;
+        min-height: 620px;
     }
 }
 

@@ -103,20 +103,26 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    if (serviceTrendCanvas && window.serviceTrendData) {
+    if (serviceTrendCanvas) {
         const ChartConstructor = window.Chart || (typeof Chart !== 'undefined' ? Chart : null);
         if (ChartConstructor) {
             const trendCtx = serviceTrendCanvas.getContext('2d');
-            const trendData = window.serviceTrendData || { labels: [], residents: [], appointments: [], complaints: [], certificates: [] };
+            const trendData = window.serviceTrendData || {
+                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                residents: [0, 0, 0, 0, 0, 0],
+                appointments: [0, 0, 0, 0, 0, 0],
+                complaints: [0, 0, 0, 0, 0, 0],
+                certificates: [0, 0, 0, 0, 0, 0]
+            };
 
             new ChartConstructor(trendCtx, {
                 type: 'line',
                 data: {
-                    labels: trendData.labels,
+                    labels: (trendData.labels && trendData.labels.length) ? trendData.labels : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
                     datasets: [
                         {
                             label: 'Residents',
-                            data: trendData.residents,
+                            data: (trendData.residents && trendData.residents.length) ? trendData.residents : [0, 0, 0, 0, 0, 0],
                             borderColor: '#0B4A9E',
                             backgroundColor: 'rgba(11, 74, 158, 0.12)',
                             borderWidth: 3,
@@ -125,7 +131,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         },
                         {
                             label: 'Appointments',
-                            data: trendData.appointments,
+                            data: (trendData.appointments && trendData.appointments.length) ? trendData.appointments : [0, 0, 0, 0, 0, 0],
                             borderColor: '#E53935',
                             backgroundColor: 'rgba(229, 57, 53, 0.12)',
                             borderWidth: 3,
@@ -134,7 +140,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         },
                         {
                             label: 'Complaints',
-                            data: trendData.complaints,
+                            data: (trendData.complaints && trendData.complaints.length) ? trendData.complaints : [0, 0, 0, 0, 0, 0],
                             borderColor: '#43A047',
                             backgroundColor: 'rgba(67, 160, 71, 0.12)',
                             borderWidth: 3,
@@ -143,7 +149,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         },
                         {
                             label: 'Certificates',
-                            data: trendData.certificates,
+                            data: (trendData.certificates && trendData.certificates.length) ? trendData.certificates : [0, 0, 0, 0, 0, 0],
                             borderColor: '#FB8C00',
                             backgroundColor: 'rgba(251, 140, 0, 0.12)',
                             borderWidth: 3,
