@@ -140,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'ad
 }
 
 if ($editOfficialId > 0) {
-    $stmt = $conn->prepare("SELECT id, first_name, last_name, username, email, role, status, term, term_end, position FROM users WHERE id = ? AND role IN ('staff', 'health_worker', 'security_force')");
+    $stmt = $conn->prepare("SELECT id, first_name, last_name, username, email, role, status, term, term_start, term_end, position FROM users WHERE id = ? AND role IN ('staff', 'health_worker', 'security_force')");
     $stmt->bind_param('i', $editOfficialId);
     $stmt->execute();
     $editOfficial = $stmt->get_result()->fetch_assoc();
@@ -164,8 +164,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
     $role = $_POST['role'] ?? 'staff';
     $status = $_POST['status'] ?? 'Active';
     $term = trim($_POST['term'] ?? '');
+    $termStart = trim($_POST['term_start'] ?? '');
+    $termStart = preg_match('/^\d{4}-\d{2}-\d{2}$/', $termStart) ? $termStart : null;
     $termEnd = trim($_POST['term_end'] ?? '');
     $termEnd = preg_match('/^\d{4}-\d{2}-\d{2}$/', $termEnd) ? $termEnd : null;
+    if ($termStart !== null && $termEnd !== null) {
+        $term = substr($termStart, 0, 4) . ' - ' . substr($termEnd, 0, 4);
+    }
     $position = trim($_POST['position'] ?? '');
     $password = $_POST['password'] ?? '';
     $photoPath = null;
@@ -180,6 +185,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
         $officialError = 'Invalid personnel type or status.';
     } elseif ($position === '') {
         $officialError = 'Please choose an official position.';
+    } elseif ($termStart !== null && $termEnd !== null && $termStart > $termEnd) {
+        $officialError = 'Term Start must be on or before Term End.';
     } elseif ($status === 'Active' && $termEnd !== null && $termEnd < date('Y-m-d')) {
         $officialError = 'Term End date has already passed. Extend it (re-elected) or set the status to Inactive.';
     } elseif ($officialId === 0 && strlen($password) < 6) {
@@ -238,8 +245,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
             }
             $stmt->execute();
             $stmt->close();
-            $termStmt = $conn->prepare('UPDATE users SET term_end = ? WHERE id = ?');
-            $termStmt->bind_param('si', $termEnd, $officialId);
+            $termStmt = $conn->prepare('UPDATE users SET term_start = ?, term_end = ? WHERE id = ?');
+            $termStmt->bind_param('ssi', $termStart, $termEnd, $officialId);
             $termStmt->execute();
             $termStmt->close();
             if ($photoData !== null && $photoMime !== null) {
@@ -260,8 +267,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
             $stmt->execute();
             $newOfficialId = $conn->insert_id;
             $stmt->close();
-            $termStmt = $conn->prepare('UPDATE users SET term_end = ? WHERE id = ?');
-            $termStmt->bind_param('si', $termEnd, $newOfficialId);
+            $termStmt = $conn->prepare('UPDATE users SET term_start = ?, term_end = ? WHERE id = ?');
+            $termStmt->bind_param('ssi', $termStart, $termEnd, $newOfficialId);
             $termStmt->execute();
             $termStmt->close();
             if ($photoData !== null && $photoMime !== null) {
@@ -645,7 +652,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                         <div class="col-md-3"><label class="form-label" for="officialLastName">Last Name</label><input class="form-control" id="officialLastName" name="last_name" required value="<?php echo h($editOfficial['last_name'] ?? ''); ?>" placeholder="Last Name"></div>
                         <div class="col-md-3"><label class="form-label" for="officialUsername">Username</label><input class="form-control" id="officialUsername" name="username" required value="<?php echo h($editOfficial['username'] ?? ''); ?>" placeholder="Username"></div>
                         <div class="col-md-3"><label class="form-label" for="officialEmail">Email</label><input type="email" class="form-control" id="officialEmail" name="email" required value="<?php echo h($editOfficial['email'] ?? ''); ?>" placeholder="Email Address"></div>
-                        <div class="col-md-3"><label class="form-label" for="officialTerm">Term</label><input class="form-control" id="officialTerm" name="term" value="<?php echo h($editOfficial['term'] ?? ''); ?>" placeholder="e.g. 2023 - 2026"></div>
+                        <input type="hidden" name="term" value="<?php echo h($editOfficial['term'] ?? ''); ?>">
+                        <div class="col-md-3"><label class="form-label" for="officialTermStart">Term Start</label><input type="date" class="form-control" id="officialTermStart" name="term_start" value="<?php echo h($editOfficial['term_start'] ?? ''); ?>"></div>
                         <div class="col-md-3"><label class="form-label" for="officialTermEnd">Term End</label><input type="date" class="form-control" id="officialTermEnd" name="term_end" value="<?php echo h($editOfficial['term_end'] ?? ''); ?>"><small class="text-muted">Automatically set to Inactive after this date.</small></div>
                         <div class="col-md-3"><label class="form-label" for="officialType">Personnel Type</label><select class="form-select" id="officialType" name="role" required><option value="staff"<?php echo ($editOfficial['role'] ?? 'staff') === 'staff' ? ' selected' : ''; ?>>Barangay Official</option><option value="health_worker"<?php echo ($editOfficial['role'] ?? '') === 'health_worker' ? ' selected' : ''; ?>>Barangay Health Worker</option><option value="security_force"<?php echo ($editOfficial['role'] ?? '') === 'security_force' ? ' selected' : ''; ?>>Barangay Security Force</option></select></div>
                         <div class="col-md-3"><label class="form-label" for="officialPosition">Position</label><input class="form-control" id="officialPosition" name="position" required value="<?php echo h($editOfficial['position'] ?? ''); ?>" placeholder="e.g. Barangay Captain"></div>

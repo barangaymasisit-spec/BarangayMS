@@ -502,6 +502,10 @@ function expireOfficialTerms(mysqli $conn): void {
     if ($column->num_rows === 0) {
         $conn->query('ALTER TABLE users ADD COLUMN term_end DATE NULL');
     }
+    $column = $conn->query("SHOW COLUMNS FROM users LIKE 'term_start'");
+    if ($column && $column->num_rows === 0) {
+        $conn->query('ALTER TABLE users ADD COLUMN term_start DATE NULL');
+    }
 
     $today = date('Y-m-d');
     $stmt = $conn->prepare("SELECT id FROM users WHERE term_end < ? AND status = 'Active' AND role IN ('staff', 'health_worker', 'security_force')");
