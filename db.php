@@ -280,9 +280,17 @@ function ensurePasswordResetTable(mysqli $conn): void {
 }
 
 function sendSmtpEmail(string $to, string $subject, string $body, string $from): bool {
+    $host = getenv('SMTP_HOST') ?: '';
+    $port = (int)(getenv('SMTP_PORT') ?: 587);
+    $username = getenv('SMTP_USERNAME') ?: getenv('SMTP_USER') ?: '';
+    $password = getenv('SMTP_PASSWORD') ?: '';
+    $smtpReady = $host !== '' && $username !== '' && $password !== '';
+
+    // SMTP (e.g. Gmail + App Password) wins when configured: mail sent through the
+    // sender's own provider passes SPF/DKIM, while SendGrid "from @gmail.com" lands in spam.
     $sendGridKey = getenv('SENDGRID_API_KEY') ?: '';
     $sendGridFrom = getenv('SENDGRID_FROM_EMAIL') ?: $from;
-    if ($sendGridKey !== '' && filter_var($sendGridFrom, FILTER_VALIDATE_EMAIL)) {
+    if (!$smtpReady && $sendGridKey !== '' && filter_var($sendGridFrom, FILTER_VALIDATE_EMAIL)) {
         $payload = json_encode([
             'personalizations' => [['to' => [['email' => $to]]]],
             'from' => ['email' => $sendGridFrom],
@@ -310,13 +318,13 @@ function sendSmtpEmail(string $to, string $subject, string $body, string $from):
         return false;
     }
 
-    $host = getenv('SMTP_HOST') ?: '';
-    $port = (int)(getenv('SMTP_PORT') ?: 587);
-    $username = getenv('SMTP_USERNAME') ?: getenv('SMTP_USER') ?: '';
-    $password = getenv('SMTP_PASSWORD') ?: '';
-    if ($host === '' || $username === '' || $password === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+    if (!$smtpReady || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
         error_log('SMTP reset email skipped: required configuration is missing.');
         return false;
+    }
+    // Send as the authenticated account so the From domain matches the signing domain.
+    if (filter_var($username, FILTER_VALIDATE_EMAIL)) {
+        $from = $username;
     }
 
     $socketHost = $port === 465 ? 'ssl://' . $host : $host;
@@ -371,7 +379,7 @@ function sendSmtpEmail(string $to, string $subject, string $body, string $from):
         return false;
     }
 
-    $headers = 'From: ' . $from . "\r\n" . 'Reply-To: ' . $from . "\r\n" . 'MIME-Version: 1.0' . "\r\n" . 'Content-Type: text/plain; charset=UTF-8';
+    $headers = 'From: Barangay Management System <' . $from . '>' . "\r\n" . 'Reply-To: ' . $from . "\r\n" . 'Date: ' . date('r') . "\r\n" . 'Message-ID: <' . bin2hex(random_bytes(16)) . '@' . substr(strrchr($from, '@'), 1) . '>' . "\r\n" . 'MIME-Version: 1.0' . "\r\n" . 'Content-Type: text/plain; charset=UTF-8';
     fwrite($socket, 'Subject: ' . $subject . "\r\n" . $headers . "\r\n\r\n" . $body . "\r\n.\r\n");
     $sent = (int)substr($read($socket), 0, 3) < 400;
     if (!$sent) {
