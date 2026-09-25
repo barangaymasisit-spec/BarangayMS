@@ -486,4 +486,64 @@ function logActivity(mysqli $conn, string $action, string $entity, string $detai
     return $ok;
 }
 
+/**
+ * Personnel whose term_end has passed become Inactive (kept for audit history,
+ * blocked from login, dropped from certificates). Re-elected = extend term_end.
+ */
+function expireOfficialTerms(mysqli $conn): void {
+    try {
+        $column = $conn->query("SHOW COLUMNS FROM users LIKE 'term_end'");
+    } catch (mysqli_sql_exception) {
+        return; // users table not installed yet
+    }
+    if (!$column) {
+        return;
+    }
+    if ($column->num_rows === 0) {
+        $conn->query('ALTER TABLE users ADD COLUMN term_end DATE NULL');
+    }
+
+    $today = date('Y-m-d');
+    $stmt = $conn->prepare("SELECT id FROM users WHERE term_end < ? AND status = 'Active' AND role IN ('staff', 'health_worker', 'security_force')");
+    $stmt->bind_param('s', $today);
+    $stmt->execute();
+    $expired = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    foreach ($expired as $row) {
+        $id = (int)$row['id'];
+        $conn->query("UPDATE users SET status = 'Inactive' WHERE id = $id");
+        logActivity($conn, 'updated', 'users', 'Term ended; account set to Inactive.', $id);
+    }
+}
+
+/**
+ * Admin notification items: terms ending within 30 days, and a missing captain
+ * (certificates then fall back to the Settings name).
+ */
+function officialTermAlerts(mysqli $conn): array {
+    if (($_SESSION['role'] ?? '') !== 'admin') {
+        return [];
+    }
+
+    $alerts = [];
+    $today = date('Y-m-d');
+    $soon = date('Y-m-d', strtotime('+30 days'));
+    $stmt = $conn->prepare("SELECT id, first_name, last_name, term_end FROM users WHERE status = 'Active' AND term_end BETWEEN ? AND ? AND role IN ('staff', 'health_worker', 'security_force') ORDER BY term_end");
+    $stmt->bind_param('ss', $today, $soon);
+    $stmt->execute();
+    foreach ($stmt->get_result()->fetch_all(MYSQLI_ASSOC) as $row) {
+        $alerts[] = ['icon' => 'fa-hourglass-end', 'text' => 'Term ending: Hon. ' . trim($row['first_name'] . ' ' . $row['last_name']), 'detail' => 'Ends ' . date('M d, Y', strtotime($row['term_end'])), 'href' => 'officials.php?edit=' . (int)$row['id']];
+    }
+    $stmt->close();
+
+    $captain = $conn->query("SELECT 1 FROM users WHERE role = 'staff' AND status = 'Active' AND (LOWER(position) LIKE '%captain%' OR LOWER(position) LIKE '%punong barangay%') AND LOWER(position) NOT LIKE '%vice%' AND LOWER(position) NOT LIKE '%deputy%' LIMIT 1");
+    if ($captain && $captain->num_rows === 0) {
+        $alerts[] = ['icon' => 'fa-user-slash', 'text' => 'No active Punong Barangay', 'detail' => 'Certificates will use the captain name in Settings', 'href' => 'officials.php'];
+    }
+
+    return $alerts;
+}
+
 ensureActivityLogsTable($conn);
+expireOfficialTerms($conn);

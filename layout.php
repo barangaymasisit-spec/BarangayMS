@@ -91,7 +91,7 @@ function notificationCount(mysqli $conn): int {
     $stmt->execute();
     $count = (int)$stmt->get_result()->fetch_row()[0];
     $stmt->close();
-    return $count;
+    return $count + count(officialTermAlerts($conn));
 }
 
 function notificationItems(mysqli $conn): array {
@@ -131,6 +131,7 @@ function notificationItems(mysqli $conn): array {
         }
         $stmt->close();
     } else {
+        $items = officialTermAlerts($conn);
         $queries = [
             ['sql' => "SELECT COUNT(*) AS total FROM certificates WHERE status = 'Pending'", 'text' => 'Pending certificate requests', 'detail' => 'Review certificate approvals', 'href' => 'certificates.php', 'icon' => 'fa-file-lines'],
             ['sql' => "SELECT COUNT(*) AS total FROM appointments WHERE status = 'Pending'", 'text' => 'Pending appointments', 'detail' => 'Review appointment requests', 'href' => 'appointments.php', 'icon' => 'fa-calendar-check'],

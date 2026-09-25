@@ -140,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'ad
 }
 
 if ($editOfficialId > 0) {
-    $stmt = $conn->prepare("SELECT id, first_name, last_name, username, email, role, status, term, position FROM users WHERE id = ? AND role IN ('staff', 'health_worker', 'security_force')");
+    $stmt = $conn->prepare("SELECT id, first_name, last_name, username, email, role, status, term, term_end, position FROM users WHERE id = ? AND role IN ('staff', 'health_worker', 'security_force')");
     $stmt->bind_param('i', $editOfficialId);
     $stmt->execute();
     $editOfficial = $stmt->get_result()->fetch_assoc();
@@ -164,6 +164,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
     $role = $_POST['role'] ?? 'staff';
     $status = $_POST['status'] ?? 'Active';
     $term = trim($_POST['term'] ?? '');
+    $termEnd = trim($_POST['term_end'] ?? '');
+    $termEnd = preg_match('/^\d{4}-\d{2}-\d{2}$/', $termEnd) ? $termEnd : null;
     $position = trim($_POST['position'] ?? '');
     $password = $_POST['password'] ?? '';
     $photoPath = null;
@@ -178,6 +180,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
         $officialError = 'Invalid personnel type or status.';
     } elseif ($position === '') {
         $officialError = 'Please choose an official position.';
+    } elseif ($status === 'Active' && $termEnd !== null && $termEnd < date('Y-m-d')) {
+        $officialError = 'Term End date has already passed. Extend it (re-elected) or set the status to Inactive.';
     } elseif ($officialId === 0 && strlen($password) < 6) {
         $officialError = 'A new official password must be at least 6 characters.';
     } elseif ($photoFile && $photoFile['error'] !== UPLOAD_ERR_NO_FILE && ($photoFile['error'] !== UPLOAD_ERR_OK || $photoFile['size'] > 5 * 1024 * 1024 || !isset($allowedPhotoTypes[mime_content_type($photoFile['tmp_name'])]))) {
@@ -234,6 +238,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
             }
             $stmt->execute();
             $stmt->close();
+            $termStmt = $conn->prepare('UPDATE users SET term_end = ? WHERE id = ?');
+            $termStmt->bind_param('si', $termEnd, $officialId);
+            $termStmt->execute();
+            $termStmt->close();
             if ($photoData !== null && $photoMime !== null) {
                 $photoStmt = $conn->prepare('UPDATE users SET photo_data = ?, photo_mime = ? WHERE id = ?');
                 $photoStmt->bind_param('bsi', $photoData, $photoMime, $officialId);
@@ -252,6 +260,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
             $stmt->execute();
             $newOfficialId = $conn->insert_id;
             $stmt->close();
+            $termStmt = $conn->prepare('UPDATE users SET term_end = ? WHERE id = ?');
+            $termStmt->bind_param('si', $termEnd, $newOfficialId);
+            $termStmt->execute();
+            $termStmt->close();
             if ($photoData !== null && $photoMime !== null) {
                 $photoStmt = $conn->prepare('UPDATE users SET photo_data = ?, photo_mime = ? WHERE id = ?');
                 $photoStmt->bind_param('bsi', $photoData, $photoMime, $newOfficialId);
@@ -348,7 +360,7 @@ function fetchPersonnelPage(mysqli $conn, string $role, string $search, string $
         $types .= 's';
     }
 
-    $sql = "SELECT id, first_name, last_name, username, role, email, status, term, position, photo_path, photo_data, photo_mime FROM users WHERE " . implode(' AND ', $where) . " ORDER BY CASE WHEN LOWER(position) LIKE '%vice%' OR LOWER(position) LIKE '%deputy%' THEN 2 WHEN LOWER(position) LIKE '%captain%' OR LOWER(position) LIKE '%punong barangay%' THEN 1 WHEN LOWER(position) LIKE '%kagawad%' OR LOWER(position) LIKE '%councilor%' THEN 3 WHEN LOWER(position) LIKE '%secretary%' THEN 4 WHEN LOWER(position) LIKE '%treasurer%' THEN 5 ELSE 99 END ASC, position ASC, last_name ASC, first_name ASC LIMIT ? OFFSET ?";
+    $sql = "SELECT id, first_name, last_name, username, role, email, status, term, term_end, position, photo_path, photo_data, photo_mime FROM users WHERE " . implode(' AND ', $where) . " ORDER BY CASE WHEN LOWER(position) LIKE '%vice%' OR LOWER(position) LIKE '%deputy%' THEN 2 WHEN LOWER(position) LIKE '%captain%' OR LOWER(position) LIKE '%punong barangay%' THEN 1 WHEN LOWER(position) LIKE '%kagawad%' OR LOWER(position) LIKE '%councilor%' THEN 3 WHEN LOWER(position) LIKE '%secretary%' THEN 4 WHEN LOWER(position) LIKE '%treasurer%' THEN 5 ELSE 99 END ASC, position ASC, last_name ASC, first_name ASC LIMIT ? OFFSET ?";
     $countSql = 'SELECT COUNT(*) FROM users WHERE ' . implode(' AND ', $where);
 
     $countStmt = $conn->prepare($countSql);
@@ -402,7 +414,7 @@ function renderPersonnelTable(mysqli_result $people, string $title, string $icon
             } else {
                 echo '<span class="text-muted">No photo</span>';
             }
-            echo '</td><td>' . h($personName) . '</td><td>' . h($person['position'] ?: 'Not set') . '</td><td>' . h($person['email']) . '</td><td>' . h($person['term'] ?: 'Not set') . '</td><td><span class="badge ' . ($person['status'] === 'Active' ? 'bg-success' : 'bg-secondary') . '">' . h($person['status']) . '</span></td><td><a href="officials.php?edit=' . (int)$person['id'] . '" class="btn btn-sm btn-outline-secondary">Edit</a>';
+            echo '</td><td>' . h($personName) . '</td><td>' . h($person['position'] ?: 'Not set') . '</td><td>' . h($person['email']) . '</td><td>' . h($person['term'] ?: 'Not set') . (!empty($person['term_end']) ? '<br><small class="text-muted">Ends ' . h(date('M d, Y', strtotime($person['term_end']))) . '</small>' : '') . '</td><td><span class="badge ' . ($person['status'] === 'Active' ? 'bg-success' : 'bg-secondary') . '">' . h($person['status']) . '</span></td><td><a href="officials.php?edit=' . (int)$person['id'] . '" class="btn btn-sm btn-outline-secondary">Edit</a>';
             if ((int)$person['id'] !== (int)($_SESSION['user_id'] ?? 0)) {
                 echo '<form action="officials.php" method="post" class="d-inline" onsubmit="return confirm(\'Delete this account?\');">' . csrfField() . '<input type="hidden" name="form_type" value="delete_official"><input type="hidden" name="official_id" value="' . (int)$person['id'] . '"><button type="submit" class="btn btn-sm btn-outline-danger">Delete</button></form>';
             }
@@ -634,6 +646,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                         <div class="col-md-3"><label class="form-label" for="officialUsername">Username</label><input class="form-control" id="officialUsername" name="username" required value="<?php echo h($editOfficial['username'] ?? ''); ?>" placeholder="Username"></div>
                         <div class="col-md-3"><label class="form-label" for="officialEmail">Email</label><input type="email" class="form-control" id="officialEmail" name="email" required value="<?php echo h($editOfficial['email'] ?? ''); ?>" placeholder="Email Address"></div>
                         <div class="col-md-3"><label class="form-label" for="officialTerm">Term</label><input class="form-control" id="officialTerm" name="term" value="<?php echo h($editOfficial['term'] ?? ''); ?>" placeholder="e.g. 2023 - 2026"></div>
+                        <div class="col-md-3"><label class="form-label" for="officialTermEnd">Term End</label><input type="date" class="form-control" id="officialTermEnd" name="term_end" value="<?php echo h($editOfficial['term_end'] ?? ''); ?>"><small class="text-muted">Automatically set to Inactive after this date.</small></div>
                         <div class="col-md-3"><label class="form-label" for="officialType">Personnel Type</label><select class="form-select" id="officialType" name="role" required><option value="staff"<?php echo ($editOfficial['role'] ?? 'staff') === 'staff' ? ' selected' : ''; ?>>Barangay Official</option><option value="health_worker"<?php echo ($editOfficial['role'] ?? '') === 'health_worker' ? ' selected' : ''; ?>>Barangay Health Worker</option><option value="security_force"<?php echo ($editOfficial['role'] ?? '') === 'security_force' ? ' selected' : ''; ?>>Barangay Security Force</option></select></div>
                         <div class="col-md-3"><label class="form-label" for="officialPosition">Position</label><input class="form-control" id="officialPosition" name="position" required value="<?php echo h($editOfficial['position'] ?? ''); ?>" placeholder="e.g. Barangay Captain"></div>
                         <div class="col-md-3"><label class="form-label" for="officialStatus">Status</label><select class="form-select" id="officialStatus" name="status"><option value="Active"<?php echo ($editOfficial['status'] ?? 'Active') === 'Active' ? ' selected' : ''; ?>>Active</option><option value="Inactive"<?php echo ($editOfficial['status'] ?? '') === 'Inactive' ? ' selected' : ''; ?>>Inactive</option></select></div>
@@ -719,7 +732,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
                                             <td><?php echo h($official['email']); ?></td>
 
-                                            <td><?php echo h($official['term'] ?: 'Not set'); ?></td>
+                                            <td><?php echo h($official['term'] ?: 'Not set'); ?><?php if (!empty($official['term_end'])): ?><br><small class="text-muted">Ends <?php echo h(date('M d, Y', strtotime($official['term_end']))); ?></small><?php endif; ?></td>
 
                                             <td>
                                                 <span class="badge <?php echo $official['status'] === 'Active' ? 'bg-success' : 'bg-secondary'; ?>">
