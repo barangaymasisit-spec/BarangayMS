@@ -55,6 +55,10 @@ document.addEventListener('DOMContentLoaded', function () {
         link.addEventListener('click', function (event) {
             if (this.getAttribute('href') && this.getAttribute('href') !== '#') {
                 sessionStorage.setItem('sidebarScrollY', String(window.scrollY));
+                const sidebar = this.closest('.sidebar');
+                if (sidebar) {
+                    sessionStorage.setItem('sidebarMenuScroll', String(sidebar.scrollTop));
+                }
                 sessionStorage.setItem('sidebarTarget', this.getAttribute('href'));
                 if (window.innerWidth <= 768) {
                     closeMobileSidebar();
@@ -101,6 +105,14 @@ document.addEventListener('DOMContentLoaded', function () {
     if (pageScrollPath === window.location.pathname && pageScrollY > 0 && !window.location.hash) {
         window.scrollTo({ top: pageScrollY, left: 0, behavior: 'auto' });
     }
+
+    // Keep the sidebar's own scroll position across page loads (zoomed / short screens).
+    const sidebarMenuScroll = sessionStorage.getItem('sidebarMenuScroll');
+    const sidebarEl = document.querySelector('.sidebar');
+    if (sidebarEl && sidebarMenuScroll !== null) {
+        sidebarEl.scrollTop = Number(sidebarMenuScroll);
+    }
+    sessionStorage.removeItem('sidebarMenuScroll');
 
     sessionStorage.removeItem('sidebarTarget');
     sessionStorage.removeItem('sidebarScrollY');
