@@ -128,6 +128,13 @@ function currentResident(mysqli $conn): ?array {
     return $resident ?: null;
 }
 
+// Lowest free RES- number, so deleted numbers get reused before new ones.
+function nextResidentNumber(mysqli $conn): string {
+    $used = "SELECT CAST(SUBSTRING(resident_number, 5) AS UNSIGNED) AS n FROM residents WHERE resident_number LIKE 'RES-%'";
+    $n = $conn->query("SELECT MIN(n) FROM (SELECT 1 AS n UNION SELECT u.n + 1 FROM ($used) u) c WHERE n NOT IN ($used)")->fetch_row()[0];
+    return 'RES-' . str_pad((string)$n, 6, '0', STR_PAD_LEFT);
+}
+
 function certificateTrackingNumber(int $certificateId, ?string $date = null): string {
     $certificateId = max(1, (int)$certificateId);
     $stamp = $date ? date('Ymd', strtotime($date)) : date('Ymd');

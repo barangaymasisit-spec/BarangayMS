@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $settings = $conn->query('SELECT email FROM barangay_settings LIMIT 1')->fetch_assoc() ?: [];
             $from = trim((string)($settings['email'] ?? '')) ?: trim((string)(getenv('MAIL_FROM') ?: ''));
-            $baseUrl = rtrim(getenv('APP_URL') ?: 'https://barangayms-production.up.railway.app', '/');
+            $baseUrl = rtrim(getenv('APP_URL') ?: 'https://barangayms.up.railway.app', '/');
             $resetUrl = $baseUrl . '/reset_password.php?token=' . urlencode($token);
             $body = "Hello " . ($user['first_name'] ?: 'there') . ",\n\nUse this link to reset your Barangay Management System password:\n\n" . $resetUrl . "\n\nThis link expires in 1 hour. If you did not request this, ignore this email.\n";
             if ($from !== '' && sendSmtpEmail($email, 'Barangay MS password reset', $body, $from)) {

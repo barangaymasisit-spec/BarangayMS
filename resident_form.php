@@ -14,9 +14,7 @@ if ($id > 0) {
 // Prepare generated resident number for new records
 $generatedResidentNumber = '';
 if (!$resident) {
-    $ai = $conn->query("SELECT AUTO_INCREMENT FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'residents'")->fetch_row();
-    $nextId = ($ai[0] ?? 1);
-    $generatedResidentNumber = 'RES-' . str_pad($nextId, 6, '0', STR_PAD_LEFT);
+    $generatedResidentNumber = nextResidentNumber($conn);
 } else {
     $generatedResidentNumber = $resident['resident_number'] ?? '';
 }
@@ -100,15 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $numberTaken = (bool)$numberCheck->get_result()->fetch_assoc();
         $numberCheck->close();
         if ($numberTaken) {
-            $nextNumber = 1;
-            do {
-                $data['resident_number'] = 'RES-' . str_pad((string)$nextNumber++, 6, '0', STR_PAD_LEFT);
-                $numberCheck = $conn->prepare('SELECT id FROM residents WHERE resident_number = ? LIMIT 1');
-                $numberCheck->bind_param('s', $data['resident_number']);
-                $numberCheck->execute();
-                $numberTaken = (bool)$numberCheck->get_result()->fetch_assoc();
-                $numberCheck->close();
-            } while ($numberTaken);
+            $data['resident_number'] = nextResidentNumber($conn);
         }
     }
 

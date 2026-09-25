@@ -80,8 +80,7 @@ $residentsStmt->close();
 $paginationBase = ['page' => $page, 'search' => $search, 'status_filter' => $statusFilter];
 
 // Next resident number for the blank form
-$ai = $conn->query("SELECT AUTO_INCREMENT FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'residents'")->fetch_row();
-$generatedResidentNumber = 'RES-' . str_pad((string)($ai[0] ?? 1), 6, '0', STR_PAD_LEFT);
+$generatedResidentNumber = nextResidentNumber($conn);
 ?>
 <!DOCTYPE html>
 <html lang="en">
