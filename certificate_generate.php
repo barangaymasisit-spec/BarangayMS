@@ -212,11 +212,12 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
 
         .signature-line {
             border-top: 1px solid #000;
-            margin-top: 50px;
-            margin-bottom: 5px;
+            margin-top: 1px;
+            margin-bottom: 3px;
         }
 
         .signature-name {
+            margin-top: 50px;
             font-weight: 700;
             font-size: 11px;
         }
@@ -545,7 +546,8 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
             font-size: 12px;
         }
 
-        .good-moral-signature .signature-line {
+        .good-moral-signature strong {
+            display: block;
             margin-top: 0.35in;
         }
 
@@ -618,8 +620,8 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
             </div>
 
             <div class="good-moral-signature">
-                <div class="signature-line"></div>
                 <strong><?php echo h($settings['barangay_captain'] ?? 'PUNONG BARANGAY'); ?></strong>
+                <div class="signature-line"></div>
                 <div>Punong Barangay</div>
             </div>
 
@@ -754,8 +756,8 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
             </div>
             <div class="signature-section">
                 <img class="signature-seal-image" src="seal.jpg" alt="Official Seal">
-                <div class="signature-line"></div>
                 <div class="signature-name"><?php echo h($settings['barangay_captain'] ?? 'PUNONG BARANGAY'); ?></div>
+                <div class="signature-line"></div>
                 <div class="signature-title"><?php echo h($settings['barangay_name'] ?? 'Punong Barangay'); ?></div>
             </div>
         </div>
