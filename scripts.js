@@ -97,7 +97,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const pageScrollPath = sessionStorage.getItem('pageScrollPath');
     const pageScrollY = Number(sessionStorage.getItem('pageScrollY') || 0);
-    if (pageScrollPath === window.location.pathname && pageScrollY > 0) {
+    // A #anchor in the URL (e.g. Edit -> #personnel-form) wins over the saved position.
+    if (pageScrollPath === window.location.pathname && pageScrollY > 0 && !window.location.hash) {
         window.scrollTo({ top: pageScrollY, left: 0, behavior: 'auto' });
     }
 
