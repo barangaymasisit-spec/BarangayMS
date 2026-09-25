@@ -73,6 +73,14 @@ $settingsResult = $conn->query('SELECT * FROM barangay_settings LIMIT 1');
 $settings = $settingsResult->fetch_assoc();
 $officialsResult = $conn->query("SELECT first_name, last_name, position, term FROM users WHERE role = 'staff' AND status = 'Active' ORDER BY id ASC");
 $officials = $officialsResult ? $officialsResult->fetch_all(MYSQLI_ASSOC) : [];
+// Signature follows the active captain in Officials; Settings value is the fallback.
+foreach ($officials as $official) {
+    $position = $official['position'] ?? '';
+    if (preg_match('/captain|punong barangay/i', $position) && !preg_match('/vice|deputy/i', $position)) {
+        $settings['barangay_captain'] = trim($official['first_name'] . ' ' . $official['last_name']);
+        break;
+    }
+}
 
 // Get barangay logo
 $logoPath = !empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $settings['logo_path'])
