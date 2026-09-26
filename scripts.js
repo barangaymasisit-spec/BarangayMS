@@ -200,24 +200,33 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    let hasUnsavedFormChanges = false;
-    document.querySelectorAll('form').forEach(function (form) {
-        form.addEventListener('input', function () {
-            hasUnsavedFormChanges = true;
+    // Checked live (not a sticky flag) so a cleared or untouched form doesn't block auto-refresh forever.
+    function hasUnsavedFormChanges() {
+        return Array.from(document.querySelectorAll('form')).some(function (form) {
+            return Array.from(form.elements).some(function (el) {
+                if (el.disabled || el.readOnly || el.type === 'hidden') {
+                    return false;
+                }
+                if (el.type === 'checkbox' || el.type === 'radio') {
+                    return el.checked !== el.defaultChecked;
+                }
+                if (el.type === 'file') {
+                    return el.files.length > 0;
+                }
+                if (el.tagName === 'SELECT') {
+                    const defaultIndex = Array.from(el.options).findIndex(function (option) { return option.defaultSelected; });
+                    return el.selectedIndex !== (defaultIndex < 0 ? 0 : defaultIndex);
+                }
+                return 'defaultValue' in el && el.value !== el.defaultValue;
+            });
         });
-        form.addEventListener('change', function () {
-            hasUnsavedFormChanges = true;
-        });
-        form.addEventListener('submit', function () {
-            hasUnsavedFormChanges = false;
-        });
-    });
+    }
 
     let syncVersion = null;
     let syncCheckInProgress = false;
 
     async function checkForApplicationUpdates() {
-        if (document.hidden || syncCheckInProgress || hasUnsavedFormChanges) {
+        if (document.hidden || syncCheckInProgress || hasUnsavedFormChanges()) {
             return;
         }
 
@@ -247,6 +256,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     checkForApplicationUpdates();
     setInterval(checkForApplicationUpdates, 5000);
+    document.addEventListener('visibilitychange', checkForApplicationUpdates);
 
     const birthDateInput = document.getElementById('birthDate') || document.getElementById('birthdate');
     const ageInput = document.getElementById('age');
