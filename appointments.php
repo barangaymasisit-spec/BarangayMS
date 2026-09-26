@@ -105,7 +105,7 @@ function formatTime($time) {
 
         <div class="row g-4">
 
-            <div class="col-lg-3">
+            <div class="col-sm-6 col-lg-3">
 
                 <div class="stat-card">
 
@@ -119,7 +119,7 @@ function formatTime($time) {
 
             </div>
 
-            <div class="col-lg-3">
+            <div class="col-sm-6 col-lg-3">
 
                 <div class="stat-card">
 
@@ -133,7 +133,7 @@ function formatTime($time) {
 
             </div>
 
-            <div class="col-lg-3">
+            <div class="col-sm-6 col-lg-3">
 
                 <div class="stat-card">
 
@@ -147,7 +147,7 @@ function formatTime($time) {
 
             </div>
 
-            <div class="col-lg-3">
+            <div class="col-sm-6 col-lg-3">
 
                 <div class="stat-card">
 
