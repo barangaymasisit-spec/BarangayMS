@@ -275,6 +275,13 @@ body{
     gap:22px;
 }
 
+/* Keep each box inside the screen; wide content (tables) slides left/right inside it */
+.content > *{
+    min-width:0;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+}
+
 /* ==========================
    PANEL
 ========================== */
@@ -405,21 +412,13 @@ tbody tr:hover{
 
 @media(max-width:992px){
 
-    /* Officials, Special Categories, Cases, Trend: swipe left/right */
     .content{
-        display:flex;
-        align-items:flex-start;
-        gap:16px;
-        overflow-x:auto;
-        scroll-snap-type:x mandatory;
-        -webkit-overflow-scrolling:touch;
-        padding-bottom:10px;
+        grid-template-columns:1fr;
     }
 
-    .content > *{
-        flex:0 0 88%;
-        min-width:0;
-        scroll-snap-align:start;
+    /* Trend chart keeps a readable width and slides inside its box */
+    .trend-chart-container{
+        min-width:640px;
     }
 
 }
