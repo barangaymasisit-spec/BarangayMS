@@ -405,8 +405,21 @@ tbody tr:hover{
 
 @media(max-width:992px){
 
+    /* Officials, Special Categories, Cases, Trend: swipe left/right */
     .content{
-        grid-template-columns:1fr;
+        display:flex;
+        align-items:flex-start;
+        gap:16px;
+        overflow-x:auto;
+        scroll-snap-type:x mandatory;
+        -webkit-overflow-scrolling:touch;
+        padding-bottom:10px;
+    }
+
+    .content > *{
+        flex:0 0 88%;
+        min-width:0;
+        scroll-snap-align:start;
     }
 
 }
