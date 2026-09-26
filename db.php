@@ -286,6 +286,51 @@ function sendSmtpEmail(string $to, string $subject, string $body, string $from):
     $password = getenv('SMTP_PASSWORD') ?: '';
     $smtpReady = $host !== '' && $username !== '' && $password !== '';
 
+    // Gmail API (HTTPS) first: Railway blocks outbound SMTP, and mail sent by Gmail
+    // itself passes SPF/DKIM so it lands in the inbox. Falls through on failure.
+    $gmailClientId = getenv('GMAIL_CLIENT_ID') ?: '';
+    $gmailClientSecret = getenv('GMAIL_CLIENT_SECRET') ?: '';
+    $gmailRefreshToken = getenv('GMAIL_REFRESH_TOKEN') ?: '';
+    if ($gmailClientId !== '' && $gmailClientSecret !== '' && $gmailRefreshToken !== '' && filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        $httpPost = static function (string $url, string $contentType, string $content, string $extraHeaders = ''): array {
+            $context = stream_context_create(['http' => [
+                'method' => 'POST',
+                'header' => "Content-Type: {$contentType}\r\nContent-Length: " . strlen($content) . "\r\n" . $extraHeaders,
+                'content' => $content,
+                'ignore_errors' => true,
+                'timeout' => 10,
+            ]]);
+            $response = @file_get_contents($url, false, $context);
+            $responseHeaders = function_exists('http_get_last_response_headers') ? (http_get_last_response_headers() ?? []) : ($http_response_header ?? []);
+            preg_match('/\s(\d{3})\s/', $responseHeaders[0] ?? '', $matches);
+            return [(int)($matches[1] ?? 0), json_decode((string)$response, true) ?: []];
+        };
+
+        [$tokenStatus, $tokenData] = $httpPost('https://oauth2.googleapis.com/token', 'application/x-www-form-urlencoded', http_build_query([
+            'client_id' => $gmailClientId,
+            'client_secret' => $gmailClientSecret,
+            'refresh_token' => $gmailRefreshToken,
+            'grant_type' => 'refresh_token',
+        ]));
+        $accessToken = $tokenData['access_token'] ?? '';
+        if ($accessToken === '') {
+            error_log('Gmail API token refresh failed with HTTP ' . $tokenStatus . ': ' . ($tokenData['error'] ?? 'unknown'));
+        } else {
+            $sender = getenv('GMAIL_SENDER') ?: $from;
+            $mime = 'From: Barangay Management System <' . $sender . ">\r\n"
+                . 'To: ' . $to . "\r\n"
+                . 'Subject: =?UTF-8?B?' . base64_encode($subject) . "?=\r\n"
+                . "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n"
+                . $body;
+            $raw = rtrim(strtr(base64_encode($mime), '+/', '-_'), '=');
+            [$sendStatus] = $httpPost('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', 'application/json', json_encode(['raw' => $raw]), "Authorization: Bearer {$accessToken}\r\n");
+            if ($sendStatus >= 200 && $sendStatus < 300) {
+                return true;
+            }
+            error_log('Gmail API rejected reset email with HTTP ' . $sendStatus . '.');
+        }
+    }
+
     // SMTP (e.g. Gmail + App Password) wins when configured: mail sent through the
     // sender's own provider passes SPF/DKIM, while SendGrid "from @gmail.com" lands in spam.
     $sendGridKey = getenv('SENDGRID_API_KEY') ?: '';
