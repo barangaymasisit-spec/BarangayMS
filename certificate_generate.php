@@ -2,6 +2,7 @@
 require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/db.php';
 restorePersistentAuthSession($conn);
+enforceActiveAccount($conn);
 
 // Verify user is logged in
 if (!isset($_SESSION['user_id'])) {

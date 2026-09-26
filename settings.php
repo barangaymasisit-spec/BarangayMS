@@ -84,16 +84,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Optional logo upload
         if (!empty($_FILES['barangay_logo']['name'])) {
-            $allowed = ['image/png', 'image/jpeg'];
+            $allowed = ['image/png' => 'png', 'image/jpeg' => 'jpg'];
             $mimeType = mime_content_type($_FILES['barangay_logo']['tmp_name']);
-            if (!in_array($mimeType, $allowed, true)) {
+            if (!isset($allowed[$mimeType])) {
                 $error = 'The barangay logo must be a PNG or JPG image.';
             } else {
                 $uploadsDir = __DIR__ . '/uploads';
                 if (!is_dir($uploadsDir)) {
                     mkdir($uploadsDir, 0755, true);
                 }
-                $fileName = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($_FILES['barangay_logo']['name']));
+                // Extension comes from the detected type, never the uploaded name (a "logo.php" must not be saved as .php).
+                $fileName = 'logo_' . bin2hex(random_bytes(8)) . '.' . $allowed[$mimeType];
                 if (move_uploaded_file($_FILES['barangay_logo']['tmp_name'], $uploadsDir . '/' . $fileName)) {
                     $logoPath = 'uploads/' . $fileName;
                     $stmt = $conn->prepare('UPDATE barangay_settings SET logo_path = ? WHERE id = ?');

@@ -8,3 +8,12 @@ resp_headers.txt
 debug_db.php
 debug_insert.php
 install_db.php
+install_db.sql
+*.log
+*.ps1
+*.txt
+*.md
+Dockerfile
+railway.toml
+.dockerignore
+graphify-out

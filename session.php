@@ -226,6 +226,33 @@ function restorePersistentAuthSession(mysqli $conn): void {
     }
 }
 
+/**
+ * Re-checks the logged-in account on every request so a deactivated, deleted
+ * or re-roled account loses its old access right away (not at next login).
+ */
+function enforceActiveAccount(mysqli $conn): void {
+    if (!isset($_SESSION['user_id'])) {
+        return;
+    }
+
+    $userId = (int)$_SESSION['user_id'];
+    $stmt = $conn->prepare("SELECT role FROM users WHERE id = ? AND status = 'Active' LIMIT 1");
+    $stmt->bind_param('i', $userId);
+    $stmt->execute();
+    $user = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if (!$user) {
+        clearPersistentAuthCookie();
+        unset($_COOKIE['BARANGAY_AUTH']);
+        $_SESSION = [];
+        session_destroy();
+        return;
+    }
+
+    $_SESSION['role'] = $user['role'];
+}
+
 function applyNoStoreHeaders(): void {
     if (headers_sent()) {
         return;

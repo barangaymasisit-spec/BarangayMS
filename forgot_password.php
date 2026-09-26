@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($user) {
             $token = bin2hex(random_bytes(32));
             $tokenHash = hash('sha256', $token);
-            $expiresAt = (new DateTimeImmutable('+1 hour'))->format('Y-m-d H:i:s');
+            $expiresAt = (new DateTimeImmutable('+1 hour', new DateTimeZone('UTC')))->format('Y-m-d H:i:s');
             $stmt = $conn->prepare('INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, ?)');
             $userId = (int)$user['id'];
             $stmt->bind_param('iss', $userId, $tokenHash, $expiresAt);
@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'The reset email could not be sent. Please contact the administrator.';
             }
         } else {
-            $sent = true;
+            $error = 'No account found with that email address.';
         }
     }
 }
@@ -62,7 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <h2>Forgot Password</h2>
     <p>Enter your registered email to receive a reset link.</p>
     <?php if ($error !== ''): ?><div class="error-message" role="alert"><?php echo h($error); ?></div><?php endif; ?>
-    <?php if ($sent): ?><div class="success-message" role="status">If an active account uses that email, a reset link has been sent.</div><?php endif; ?>
+    <?php if ($sent): ?><div class="success-message" role="status">A reset link has been sent to your email.</div><?php endif; ?>
     <?php if (!$sent): ?>
     <form method="post" action="forgot_password.php">
         <?php echo csrfField(); ?>
