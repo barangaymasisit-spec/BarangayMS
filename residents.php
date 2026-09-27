@@ -63,7 +63,7 @@ $totalPages = max(1, (int)ceil($totalResidentsCount / $perPage));
 $page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
 
-$residentsStmt = $conn->prepare("SELECT $fields FROM residents $whereSql ORDER BY last_name ASC, first_name ASC, resident_number ASC LIMIT ? OFFSET ?");
+$residentsStmt = $conn->prepare("SELECT $fields FROM residents $whereSql ORDER BY resident_number ASC LIMIT ? OFFSET ?");
 if ($params !== []) {
     $bindParams = $params;
     $bindParams[] = $perPage;
