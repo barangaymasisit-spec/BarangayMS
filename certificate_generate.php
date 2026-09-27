@@ -146,6 +146,22 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
             position: relative;
             overflow: hidden;
+            isolation: isolate;
+        }
+
+        /* Faded seal behind the text. An <img>, not a CSS background, so it prints even with "Background graphics" off. */
+        .certificate-watermark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 5.5in;
+            height: 5.5in;
+            transform: translate(-50%, -50%);
+            object-fit: contain;
+            filter: grayscale(1);
+            opacity: 0.07;
+            z-index: -1;
+            pointer-events: none;
         }
 
         .certificate-header {
@@ -613,6 +629,7 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
 
     <?php if ($isGoodMoral): ?>
     <div class="certificate-container good-moral-certificate">
+        <img class="certificate-watermark" src="seal.jpg" alt="" aria-hidden="true">
         <header class="good-moral-header">
             <img src="seal.jpg" alt="Barangay Seal">
             <div>
@@ -665,6 +682,7 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
     </div>
     <?php else: ?>
     <div class="certificate-container">
+        <img class="certificate-watermark" src="seal.jpg" alt="" aria-hidden="true">
         <!-- Header -->
         <div class="certificate-header">
             <div class="logo-section">
