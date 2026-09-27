@@ -84,5 +84,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </form>
     <?php endif; ?>
 </div></div>
+<script src="password-peek.js"></script>
 </body>
 </html>

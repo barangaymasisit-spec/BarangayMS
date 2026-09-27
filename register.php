@@ -290,5 +290,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </div>
 
 
+<script src="password-peek.js"></script>
 </body>
 </html>
