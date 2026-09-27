@@ -294,8 +294,9 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
         }
 
         .picture-placeholder {
-            width: 120px;
-            height: 150px;
+            box-sizing: border-box;
+            width: 2in;
+            height: 2in;
             border: 2px solid #999;
             display: flex;
             align-items: center;
