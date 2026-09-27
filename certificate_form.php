@@ -25,8 +25,9 @@ if ($id > 0) {
     }
 }
 
-// Delete
-if ($certificate && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
+// Delete: only for requests never issued; approved/released ones stay on record.
+$canDelete = $certificate && in_array($certificate['status'], ['Pending', 'Rejected'], true);
+if ($canDelete && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
     $stmt = $conn->prepare('DELETE FROM certificates WHERE id = ?');
     $stmt->bind_param('i', $id);
     $stmt->execute();
@@ -261,13 +262,17 @@ $statusOptions = ['Pending', 'Approved', 'Released', 'Rejected'];
                         <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
                         <span>Edit</span>
                     </a>
-                                        <form method="post" action="certificate_form.php?id=<?php echo $id; ?>" class="d-inline"
-                                                    onsubmit="return confirm('Delete this certificate request?');">
-                                                <?php echo csrfField(); ?>
-                                                <input type="hidden" name="action" value="delete">
-                        <i class="fa-solid fa-trash" aria-hidden="true"></i>
-                                                <button type="submit" class="btn-danger"><span>Delete</span></button>
-                                        </form>
+                    <?php if ($canDelete): ?>
+                    <form method="post" action="certificate_form.php?id=<?php echo $id; ?>" class="d-inline"
+                          onsubmit="return confirm('Delete this certificate request?');">
+                        <?php echo csrfField(); ?>
+                        <input type="hidden" name="action" value="delete">
+                        <button type="submit" class="btn-danger">
+                            <i class="fa-solid fa-trash" aria-hidden="true"></i>
+                            <span>Delete</span>
+                        </button>
+                    </form>
+                    <?php endif; ?>
                     <a href="certificates.php" class="btn-cancel">
                         <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
                         <span>Back to Certifications</span>

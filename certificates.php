@@ -28,6 +28,35 @@ if ($requestStatus !== '') {
 }
 $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
+// Export: CSV of every request matching the current filters (not just this page).
+if (($_GET['export'] ?? '') === 'csv') {
+    $stmt = $conn->prepare('SELECT c.id, COALESCE(CONCAT(r.first_name, " ", r.last_name), "Unknown") AS resident_name,
+                                   c.certificate_type, c.purpose, c.request_date, c.status, c.approved_date, c.remarks
+                            FROM certificates c
+                            LEFT JOIN residents r ON c.resident_id = r.id' . $whereSql . ' ORDER BY c.id DESC');
+    if ($params) {
+        $stmt->bind_param($types, ...$params);
+    }
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="certificate_requests_' . date('Y-m-d') . '.csv"');
+    $out = fopen('php://output', 'w');
+    fwrite($out, "\xEF\xBB\xBF"); // BOM so Excel reads UTF-8 names (ñ) correctly
+    fputcsv($out, ['Reference No.', 'Resident', 'Certificate', 'Purpose', 'Request Date', 'Status', 'Approved / Released Date', 'Remarks']);
+    while ($row = $result->fetch_assoc()) {
+        $row['id'] = str_pad((string)$row['id'], 6, '0', STR_PAD_LEFT);
+        // Stop Excel from running cells that start with = + - @ as formulas.
+        $row = array_map(fn($v) => preg_match('/^[=+\-@]/', (string)$v) ? "'" . $v : $v, $row);
+        fputcsv($out, $row);
+    }
+    fclose($out);
+    $stmt->close();
+    logActivity($conn, 'exported', 'certificates', 'Exported certificate requests to CSV.');
+    exit;
+}
+
 $countSql = 'SELECT COUNT(*) FROM certificates c LEFT JOIN residents r ON c.resident_id = r.id' . $whereSql;
 if ($params) {
     $stmt = $conn->prepare($countSql);
@@ -338,10 +367,11 @@ $activeFilters = [
 
                     </button>
 
-                    <button
-                        type="button"
-                        class="btn-export js-not-implemented"
-                        aria-label="Export Certificate Requests">
+                    <a
+                        href="certificates.php?<?php echo h(http_build_query(array_filter($activeFilters, fn($v) => $v !== '') + ['export' => 'csv'])); ?>"
+                        class="btn-export"
+                        style="text-decoration:none;"
+                        aria-label="Export Certificate Requests to CSV">
 
                         <i
                             class="fa-solid fa-file-export"
@@ -349,7 +379,7 @@ $activeFilters = [
 
                         <span>Export</span>
 
-                    </button>
+                    </a>
 
                 </div>
 
@@ -500,6 +530,24 @@ $activeFilters = [
                                                 <i class="fa-solid fa-print" aria-hidden="true"></i>
 
                                             </a>
+
+                                            <?php if (in_array($row['status'], ['Pending', 'Rejected'], true)): ?>
+                                            <form
+                                                method="post"
+                                                action="certificate_form.php?id=<?php echo (int)$row['id']; ?>"
+                                                class="d-inline"
+                                                onsubmit="return confirm('Delete this certificate request?');">
+                                                <?php echo csrfField(); ?>
+                                                <input type="hidden" name="action" value="delete">
+                                                <button
+                                                    type="submit"
+                                                    class="btn-delete"
+                                                    title="Delete Request"
+                                                    aria-label="Delete certificate request">
+                                                    <i class="fa-solid fa-trash" aria-hidden="true"></i>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
 
                                         </div>
 
