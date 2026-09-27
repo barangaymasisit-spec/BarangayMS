@@ -177,7 +177,7 @@ $statusOptions = ['Pending', 'Ongoing', 'Resolved'];
 </head>
 <body>
 <div class="wrapper">
-    <?php renderSidebar('complaints', 'compact'); ?>
+    <?php renderSidebar($isResident ? 'resident_complaint' : 'complaints', 'compact'); ?>
     <main class="main-content">
 
         <?php renderTopbar($title, $isNew ? 'File a new complaint record.' : 'View and manage a complaint record.', 'compact', ['clock' => true]); ?>

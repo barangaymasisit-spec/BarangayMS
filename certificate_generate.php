@@ -30,8 +30,13 @@ if ($certResult->num_rows === 0) {
 }
 $cert = $certResult->fetch_assoc();
 
+// Residents only track status; certificates are printed and released at the barangay hall.
 $role = $_SESSION['role'] ?? '';
-if (!in_array($role, ['admin', 'staff', 'resident'], true)) {
+if ($role === 'resident') {
+    header('Location: resident_dashboard.php');
+    exit;
+}
+if (!in_array($role, ['admin', 'staff'], true)) {
     http_response_code(403);
     exit('You are not authorized to view this certificate.');
 }
@@ -89,6 +94,23 @@ $logoPath = !empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $setti
     : 'logo.png';
 
 $validation = validateCertificatePrintable($cert, $resident ?: []);
+
+// Sent by the afterprint handler below: log the print and release an approved certificate.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'printed') {
+    if (!verifyCsrfToken() || !$validation['allowed']) {
+        http_response_code(403);
+        exit;
+    }
+    logActivity($conn, 'printed', 'certificates', 'Printed certificate', $certificateId);
+    $stmt = $conn->prepare("UPDATE certificates SET status = 'Released', approved_date = CURDATE() WHERE id = ? AND status = 'Approved'");
+    $stmt->bind_param('i', $certificateId);
+    $stmt->execute();
+    if ($stmt->affected_rows > 0) {
+        logActivity($conn, 'released', 'certificates', 'Released certificate after printing.', $certificateId);
+    }
+    $stmt->close();
+    exit;
+}
 $trackingNumber = certificateTrackingNumber((int)($cert['id'] ?? 0), $cert['request_date'] ?? null);
 $issuedOn = date('Y-m-d');
 $printedTimestamp = strtotime($issuedOn);
@@ -392,13 +414,10 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
             font-weight: 700;
         }
 
-        .signature-seal-image {
-            display: block;
-            width: 120px;
+        /* Blank room for the dry seal applied at the barangay hall. */
+        .dry-seal-space {
             height: 120px;
-            margin: 0 auto 10px;
-            object-fit: contain;
-            opacity: 0.35;
+            margin-bottom: 10px;
         }
 
         .good-moral-certificate {
@@ -764,7 +783,7 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
                 <?php endif; ?>
             </div>
             <div class="signature-section">
-                <img class="signature-seal-image" src="seal.jpg" alt="Official Seal">
+                <div class="dry-seal-space" aria-hidden="true"></div>
                 <div class="signature-name"><?php echo h($settings['barangay_captain'] ?? 'PUNONG BARANGAY'); ?></div>
                 <div class="signature-line"></div>
                 <div class="signature-title"><?php echo h($settings['barangay_name'] ?? 'Punong Barangay'); ?></div>
@@ -790,12 +809,24 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
     <?php endif; ?>
 
     <?php if ($validation['allowed']): ?>
-        <?php logActivity($conn, 'printed', 'certificates', 'Printed certificate', (int)($cert['id'] ?? 0)); ?>
+    <script>
+    window.addEventListener('afterprint', function () {
+        <?php if (($cert['status'] ?? '') === 'Approved'): ?>
+        if (!confirm('Was the certificate printed successfully? It will be marked as Released.')) return;
+        <?php endif; ?>
+        var data = new FormData();
+        data.append('action', 'printed');
+        data.append('csrf_token', <?php echo json_encode(csrfToken()); ?>);
+        fetch(window.location.href, { method: 'POST', body: data, credentials: 'same-origin' })
+            .then(function (response) { if (!response.ok) throw new Error(); })
+            .catch(function () { alert('Could not update the certificate status. Please set it to Released manually.'); });
+    });
+    </script>
     <?php endif; ?>
 
     <div class="print-actions">
         <button class="print-button" onclick="window.print()" <?php echo $validation['allowed'] ? '' : 'disabled'; ?>>🖨️ Print Certificate</button>
-        <button class="print-button" onclick="window.print(); return false;">📄 Save as PDF</button>
+        <button class="print-button" onclick="window.print(); return false;" <?php echo $validation['allowed'] ? '' : 'disabled'; ?>>📄 Save as PDF</button>
         <?php if ($emailAddress !== ''): ?>
             <a class="print-button" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center;" href="<?php echo h($mailtoHref); ?>">✉️ Email Certificate</a>
         <?php endif; ?>

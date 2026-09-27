@@ -10,7 +10,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $role = $_SESSION['role'] ?? '';
-$residentPages = ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php', 'logout.php'];
+$residentPages = ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'logout.php'];
 if ($role === 'resident' && !in_array(basename($_SERVER['PHP_SELF']), $residentPages, true)) {
     header('Location: resident_dashboard.php');
     exit;
@@ -37,7 +37,7 @@ $rolePages = [
     ],
     'health_worker' => ['dashboard.php', 'residents.php', 'logout.php'],
     'security_force' => ['dashboard.php', 'emergency.php', 'logout.php'],
-    'resident' => ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php', 'logout.php'],
+    'resident' => ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'logout.php'],
 ];
 if (isset($rolePages[$role]) && !in_array(basename($_SERVER['PHP_SELF']), $rolePages[$role], true)) {
     header('Location: dashboard.php?denied=1');

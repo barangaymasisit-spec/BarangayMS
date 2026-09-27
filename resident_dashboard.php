@@ -46,7 +46,7 @@ $stmt->execute();
 $complaintCount = (int)$stmt->get_result()->fetch_row()[0];
 $stmt->close();
 
-$stmt = $conn->prepare('SELECT certificate_type, status, request_date FROM certificates WHERE resident_id = ? ORDER BY id DESC LIMIT 5');
+$stmt = $conn->prepare('SELECT id, certificate_type, status, request_date FROM certificates WHERE resident_id = ? ORDER BY id DESC LIMIT 5');
 $stmt->bind_param('i', $residentId);
 $stmt->execute();
 $certificates = $stmt->get_result();
@@ -65,6 +65,11 @@ $certificates = $stmt->get_result();
     <?php renderSidebar('resident_dashboard', 'panel'); ?>
     <main class="main-content">
         <?php renderTopbar('Resident Dashboard', 'Manage your barangay requests', 'panel', ['clock' => true]); ?>
+        <?php renderNotice([
+            'certificate_created' => 'Your certificate request was submitted. Please wait for the barangay office to approve it.',
+            'appointment_created' => 'Your appointment request was submitted.',
+            'complaint_created' => 'Your complaint was submitted.',
+        ]); ?>
 
         <section class="cards" aria-label="My request totals">
             <div class="card">
@@ -141,23 +146,25 @@ $certificates = $stmt->get_result();
             <div class="section-header">
                 <div>
                     <h3>My Certificate Requests</h3>
-                    <p>Track the latest status of your requests.</p>
+                    <p>Track the latest status of your requests. Approved certificates are claimed at the barangay hall; bring your tracking number.</p>
                 </div>
             </div>
             <div class="table-responsive">
                 <table>
                     <thead>
-                        <tr><th>Certificate</th><th>Request Date</th><th>Status</th></tr>
+                        <tr><th>Tracking No.</th><th>Certificate</th><th>Request Date</th><th>Status</th></tr>
                     </thead>
                     <tbody>
                     <?php if ($certificates->num_rows === 0): ?>
-                        <tr><td colspan="3">No certificate requests yet.</td></tr>
+                        <tr><td colspan="4">No certificate requests yet.</td></tr>
                     <?php else: ?>
+                        <?php $statusLabels = ['Approved' => 'Ready for pickup', 'Released' => 'Claimed']; ?>
                         <?php while ($certificate = $certificates->fetch_assoc()): ?>
                             <tr>
+                                <td><?php echo h(certificateTrackingNumber((int)$certificate['id'], $certificate['request_date'])); ?></td>
                                 <td><?php echo h($certificate['certificate_type']); ?></td>
                                 <td><?php echo h($certificate['request_date']); ?></td>
-                                <td><?php echo h($certificate['status']); ?></td>
+                                <td><?php echo h($statusLabels[$certificate['status']] ?? $certificate['status']); ?></td>
                             </tr>
                         <?php endwhile; ?>
                     <?php endif; ?>

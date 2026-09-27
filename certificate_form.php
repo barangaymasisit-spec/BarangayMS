@@ -61,6 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $values['resident_id'] = (string)$currentResident['id'];
         $values['status'] = 'Pending';
         $values['approved_date'] = '';
+        $values['request_date'] = date('Y-m-d');
     }
     $residentId = (int)$values['resident_id'];
     $approvedDate = $values['approved_date'] !== '' ? $values['approved_date'] : null;
@@ -128,7 +129,7 @@ $statusOptions = ['Pending', 'Approved', 'Released', 'Rejected'];
 </head>
 <body>
 <div class="wrapper">
-    <?php renderSidebar('certificates'); ?>
+    <?php renderSidebar($isResident ? 'resident_certificate' : 'certificates'); ?>
     <main class="main-content">
 
         <?php renderTopbar($title, $isNew ? 'Record a new certificate request.' : 'View and manage a certificate request.', 'panel', ['breadcrumb' => 'Online Certifications', 'clock' => true]); ?>
@@ -203,7 +204,7 @@ $statusOptions = ['Pending', 'Approved', 'Released', 'Rejected'];
 
                         <div class="form-group">
                             <label for="request_date">Request Date *</label>
-                            <input type="date" id="request_date" name="request_date" value="<?php echo h($values['request_date']); ?>" required>
+                            <input type="date" id="request_date" name="request_date" value="<?php echo h($values['request_date']); ?>" required<?php echo $isResident ? ' readonly' : ''; ?>>
                         </div>
 
                         <?php if (!$isResident): ?>

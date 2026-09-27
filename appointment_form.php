@@ -146,7 +146,7 @@ $purposeOptions = ['Barangay Clearance', 'Certificate Request', 'Complaint Heari
 </head>
 <body>
 <div class="wrapper">
-    <?php renderSidebar('appointments', 'compact'); ?>
+    <?php renderSidebar($isResident ? 'resident_appointment' : 'appointments', 'compact'); ?>
     <main class="main-content">
 
         <?php renderTopbar($title, $isNew ? 'Schedule a new appointment.' : 'View and manage an appointment.', 'compact', ['clock' => true]); ?>

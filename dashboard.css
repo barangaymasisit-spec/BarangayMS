@@ -562,3 +562,19 @@ tbody tr:hover{
     margin-top:5px;
     font-size:28px;
 }
+
+.notice{
+    background:#E8F5E9;
+    border:1px solid #A5D6A7;
+    color:#2E7D32;
+    padding:15px 20px;
+    border-radius:12px;
+    font-weight:600;
+    margin-bottom:25px;
+}
+
+.notice-error{
+    background:#FDECEA;
+    border-color:#F5C6C2;
+    color:#C62828;
+}
