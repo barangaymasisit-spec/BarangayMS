@@ -158,7 +158,7 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
             height: 5.5in;
             transform: translate(-50%, -50%);
             object-fit: contain;
-            filter: grayscale(1);
+            filter: grayscale(0.4);
             opacity: 0.14;
             z-index: -1;
             pointer-events: none;
