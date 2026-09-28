@@ -9,7 +9,10 @@ if (ini_get('session.use_cookies')) {
         $params['secure'], $params['httponly']
     );
 }
-session_destroy();
+// session.php may have already destroyed an idle-expired session.
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_destroy();
+}
 $redirect = isset($_GET['expired']) ? 'auth.php?expired=1' : 'auth.php';
 header('Location: ' . $redirect);
 exit;

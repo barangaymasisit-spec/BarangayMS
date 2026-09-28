@@ -14,4 +14,4 @@ ENV PORT=8080
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "php -S 0.0.0.0:${PORT} -t /var/www/html"]
+CMD ["sh", "-c", "php -d display_errors=0 -d log_errors=1 -S 0.0.0.0:${PORT} -t /var/www/html"]
