@@ -49,65 +49,11 @@ if ($adminResult->num_rows === 0) {
 }
 $admin = $adminResult->fetch_assoc();
 
-const BACKUP_HEADER = '-- BarangayMS database backup';
-// Sessions, login throttling and reset tokens are live security state, not records worth restoring.
-const BACKUP_SKIP_TABLES = ['php_sessions', 'login_attempts', 'password_resets'];
-
-function streamDatabaseBackup(mysqli $conn): void {
-    echo BACKUP_HEADER, "\n-- Created: ", date('Y-m-d H:i:s'), "\n\n";
-    echo "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\n\n";
-
-    $tables = $conn->query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")->fetch_all();
-    foreach ($tables as [$table]) {
-        if (in_array($table, BACKUP_SKIP_TABLES, true)) {
-            continue;
-        }
-        $createSql = $conn->query('SHOW CREATE TABLE `' . $table . '`')->fetch_row()[1];
-        echo "DROP TABLE IF EXISTS `$table`;\n$createSql;\n";
-
-        $rows = $conn->query('SELECT * FROM `' . $table . '`', MYSQLI_USE_RESULT);
-        $batch = [];
-        while (true) {
-            $row = $rows->fetch_row();
-            if ($row) {
-                $batch[] = '(' . implode(',', array_map(
-                    fn($value) => $value === null ? 'NULL' : "'" . $conn->real_escape_string($value) . "'",
-                    $row
-                )) . ')';
-            }
-            if ($batch && (!$row || count($batch) === 200)) {
-                echo "INSERT INTO `$table` VALUES\n", implode(",\n", $batch), ";\n";
-                $batch = [];
-            }
-            if (!$row) {
-                break;
-            }
-        }
-        $rows->free();
-        echo "\n";
-    }
-
-    echo "SET FOREIGN_KEY_CHECKS = 1;\n";
-}
-
-function restoreDatabaseBackup(mysqli $conn, string $sql): void {
-    try {
-        $conn->multi_query($sql);
-        do {
-            if ($result = $conn->store_result()) {
-                $result->free();
-            }
-        } while ($conn->more_results() && $conn->next_result());
-    } finally {
-        $conn->query('SET FOREIGN_KEY_CHECKS = 1');
-    }
-}
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $formType = $_POST['form_type'] ?? '';
 
     // settings.php is also open to staff; backup/restore expose and replace every record, so admins only.
-    if (($formType === 'backup' || $formType === 'restore') && ($_SESSION['role'] ?? '') !== 'admin') {
+    if (in_array($formType, ['backup', 'restore', 'download_saved'], true) &&($_SESSION['role'] ?? '') !== 'admin') {
         $error = 'Only administrators can back up or restore the database.';
         $formType = '';
     }
@@ -119,6 +65,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Content-Disposition: attachment; filename="barangayms-backup-' . date('Ymd-His') . '.sql"');
         streamDatabaseBackup($conn);
         exit;
+    }
+
+    if ($formType === 'download_saved') {
+        ensureDatabaseBackupsTable($conn);
+        $savedId = (int)($_POST['backup_id'] ?? 0);
+        $stmt = $conn->prepare('SELECT backup_date, sql_dump FROM database_backups WHERE id = ? LIMIT 1');
+        $stmt->bind_param('i', $savedId);
+        $stmt->execute();
+        $saved = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($saved) {
+            header('Content-Type: application/sql; charset=utf-8');
+            header('Content-Disposition: attachment; filename="barangayms-auto-backup-' . str_replace('-', '', $saved['backup_date']) . '-1700.sql"');
+            echo $saved['sql_dump'];
+            exit;
+        }
+        $error = 'That saved backup no longer exists.';
     }
 
     if ($formType === 'restore') {
@@ -267,6 +230,8 @@ $totalAdministrators = (int)($conn->query("SELECT COUNT(*) FROM users WHERE role
 [$totalBackups, $lastBackupAt] = $conn->query("SELECT COUNT(*), MAX(created_at) FROM activity_logs WHERE action = 'backup' AND entity = 'database'")->fetch_row();
 $totalBackups = (int)$totalBackups;
 $lastBackup = $lastBackupAt ? formatDatabaseDateTime($lastBackupAt, 'F d, Y h:i A') : 'No backup recorded';
+ensureDatabaseBackupsTable($conn);
+$savedBackups = $conn->query('SELECT id, backup_date, LENGTH(sql_dump) AS size_bytes FROM database_backups ORDER BY backup_date DESC')->fetch_all(MYSQLI_ASSOC);
 $logoSrc = !empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $settings['logo_path'])
     ? $settings['logo_path']
     : 'logo.png';
@@ -941,6 +906,27 @@ $logoSrc = !empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $settin
                             Backup Database
                         </button>
                     </form>
+
+                    <p class="mb-1"><strong>Automatic backups</strong> <small class="text-muted">(daily at 5:00 PM, last <?php echo AUTO_BACKUPS_KEPT; ?> kept)</small></p>
+                    <?php if (!$savedBackups): ?>
+                        <p class="text-muted">None yet. The first one is saved at 5:00 PM.</p>
+                    <?php else: ?>
+                        <ul class="list-unstyled mb-3">
+                            <?php foreach ($savedBackups as $saved): ?>
+                                <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
+                                    <span><?php echo h(date('M d, Y', strtotime($saved['backup_date']))); ?> <small class="text-muted"><?php echo h(number_format($saved['size_bytes'] / 1024, 1)); ?> KB</small></span>
+                                    <form action="settings.php" method="POST" class="m-0">
+                                        <?php echo csrfField(); ?>
+                                        <input type="hidden" name="form_type" value="download_saved">
+                                        <input type="hidden" name="backup_id" value="<?php echo (int)$saved['id']; ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-success" aria-label="Download backup from <?php echo h($saved['backup_date']); ?>">
+                                            <i class="fa-solid fa-download" aria-hidden="true"></i>
+                                        </button>
+                                    </form>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
 
                     <form action="settings.php" method="POST" enctype="multipart/form-data" class="d-grid gap-2"
                         onsubmit="return confirm('Restoring replaces ALL current records with the backup. Continue?');">

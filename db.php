@@ -605,5 +605,122 @@ function officialTermAlerts(mysqli $conn): array {
     return $alerts;
 }
 
+const BACKUP_HEADER = '-- BarangayMS database backup';
+// Sessions, login throttling and reset tokens are live security state, not records worth restoring.
+// database_backups holds the backups themselves; dumping it would nest every old backup in each new one.
+const BACKUP_SKIP_TABLES = ['php_sessions', 'login_attempts', 'password_resets', 'database_backups'];
+const AUTO_BACKUP_HOUR = 17; // 5:00 PM Manila
+const AUTO_BACKUPS_KEPT = 7;
+
+function streamDatabaseBackup(mysqli $conn): void {
+    echo BACKUP_HEADER, "\n-- Created: ", date('Y-m-d H:i:s'), "\n\n";
+    echo "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\n\n";
+
+    $tables = $conn->query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")->fetch_all();
+    foreach ($tables as [$table]) {
+        if (in_array($table, BACKUP_SKIP_TABLES, true)) {
+            continue;
+        }
+        $createSql = $conn->query('SHOW CREATE TABLE `' . $table . '`')->fetch_row()[1];
+        echo "DROP TABLE IF EXISTS `$table`;\n$createSql;\n";
+
+        $rows = $conn->query('SELECT * FROM `' . $table . '`', MYSQLI_USE_RESULT);
+        $batch = [];
+        while (true) {
+            $row = $rows->fetch_row();
+            if ($row) {
+                $batch[] = '(' . implode(',', array_map(
+                    fn($value) => $value === null ? 'NULL' : "'" . $conn->real_escape_string($value) . "'",
+                    $row
+                )) . ')';
+            }
+            if ($batch && (!$row || count($batch) === 200)) {
+                echo "INSERT INTO `$table` VALUES\n", implode(",\n", $batch), ";\n";
+                $batch = [];
+            }
+            if (!$row) {
+                break;
+            }
+        }
+        $rows->free();
+        echo "\n";
+    }
+
+    echo "SET FOREIGN_KEY_CHECKS = 1;\n";
+}
+
+function restoreDatabaseBackup(mysqli $conn, string $sql): void {
+    try {
+        $conn->multi_query($sql);
+        do {
+            if ($result = $conn->store_result()) {
+                $result->free();
+            }
+        } while ($conn->more_results() && $conn->next_result());
+    } finally {
+        $conn->query('SET FOREIGN_KEY_CHECKS = 1');
+    }
+}
+
+// Kept in the database because Railway's disk is wiped on every deploy.
+function ensureDatabaseBackupsTable(mysqli $conn): void {
+    $conn->query(
+        'CREATE TABLE IF NOT EXISTS database_backups (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            backup_date DATE NOT NULL,
+            sql_dump LONGBLOB NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uniq_database_backups_date (backup_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+    );
+}
+
+/**
+ * Runs on every request (including the 5-second sync poll), so the day's backup
+ * is taken by the first request at or after 5:00 PM Manila time.
+ * ponytail: no request after 5 PM (nobody logged in) = no backup that day; a Railway cron service fixes that if it matters.
+ */
+function runScheduledBackup(mysqli $conn): void {
+    if ((int)date('G') < AUTO_BACKUP_HOUR) {
+        return;
+    }
+    $today = date('Y-m-d');
+    try {
+        ensureDatabaseBackupsTable($conn);
+        $exists = $conn->query("SELECT 1 FROM database_backups WHERE backup_date = '$today' LIMIT 1");
+        if ($exists->num_rows > 0 || (int)$conn->query("SELECT GET_LOCK('bms_auto_backup', 0)")->fetch_row()[0] !== 1) {
+            return;
+        }
+        try {
+            // Another request may have finished the backup while this one waited for the lock.
+            if ($conn->query("SELECT 1 FROM database_backups WHERE backup_date = '$today' LIMIT 1")->num_rows > 0) {
+                return;
+            }
+            ob_start();
+            try {
+                streamDatabaseBackup($conn);
+            } finally {
+                $dump = ob_get_clean();
+            }
+
+            $stmt = $conn->prepare('INSERT INTO database_backups (backup_date, sql_dump) VALUES (?, ?)');
+            $stmt->bind_param('ss', $today, $dump);
+            $stmt->execute();
+            $backupId = (int)$stmt->insert_id;
+            $stmt->close();
+
+            $conn->query('DELETE FROM database_backups WHERE id NOT IN (SELECT id FROM (SELECT id FROM database_backups ORDER BY backup_date DESC LIMIT ' . AUTO_BACKUPS_KEPT . ') AS kept)');
+            logActivity($conn, 'backup', 'database', 'Automatic 5:00 PM database backup.', $backupId, 0);
+        } finally {
+            $conn->query("SELECT RELEASE_LOCK('bms_auto_backup')");
+        }
+    } catch (Throwable $e) {
+        // A failed backup must never break the page the user is on.
+        error_log('Automatic database backup failed: ' . $e->getMessage());
+    }
+}
+
 ensureActivityLogsTable($conn);
 expireOfficialTerms($conn);
+runScheduledBackup($conn);
