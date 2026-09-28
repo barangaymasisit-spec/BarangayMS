@@ -5,7 +5,7 @@ $activeAlerts = $conn->query("SELECT id, tracking_number, resident_name, categor
 $pendingAlerts = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Pending'")->fetch_row()[0] ?? 0);
 $ongoingAlerts = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Ongoing'")->fetch_row()[0] ?? 0);
 $resolvedAlerts = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved'")->fetch_row()[0] ?? 0);
-$todayAlerts = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE date_filed = CURDATE()")->fetch_row()[0] ?? 0);
+$todayAlerts = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE date_filed = '" . date('Y-m-d') . "'")->fetch_row()[0] ?? 0);
 $alertStyles = ['danger', 'warning', 'primary'];
 $alertRows = [];
 ?>

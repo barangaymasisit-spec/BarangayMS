@@ -227,7 +227,7 @@ $incomeOptions = ['Below 10,000', '10,000 - 20,000', '20,001 - 30,000', '30,001 
                         <tr><th>Household Type</th><td><?php echo h($household['household_type']); ?></td></tr>
                         <tr><th>Income Bracket</th><td><?php echo h($household['income_bracket']); ?></td></tr>
                         <tr><th>Address</th><td><?php echo h($household['address']); ?></td></tr>
-                        <tr><th>Date Added</th><td><?php echo h($household['created_at']); ?></td></tr>
+                        <tr><th>Date Added</th><td><?php echo h(formatDatabaseDateTime($household['created_at'])); ?></td></tr>
                     </tbody>
                 </table>
 

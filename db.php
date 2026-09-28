@@ -15,6 +15,9 @@ if ($conn->connect_error) {
 }
 
 $conn->set_charset('utf8mb4');
+// Store timestamps in UTC everywhere (Railway's MySQL already is; XAMPP uses the PC's zone).
+// formatDatabaseDateTime() converts them to Manila time for display.
+$conn->query("SET time_zone = '+00:00'");
 
 function ensureBarangaySettingsSchema(mysqli $conn): void {
     $conn->query(

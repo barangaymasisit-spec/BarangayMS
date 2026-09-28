@@ -38,7 +38,7 @@ $pendingAppointments = (int)($conn->query("SELECT COUNT(*) FROM appointments WHE
 $approvedAppointments = (int)($conn->query("SELECT COUNT(*) FROM appointments WHERE status = 'Approved'")->fetch_row()[0] ?? 0);
 $cancelledAppointments = (int)($conn->query("SELECT COUNT(*) FROM appointments WHERE status = 'Cancelled'")->fetch_row()[0] ?? 0);
 
-$todaySchedule = $conn->query("SELECT resident_name, purpose, appointment_time FROM appointments WHERE appointment_date = CURDATE() ORDER BY appointment_time ASC");
+$todaySchedule = $conn->query("SELECT resident_name, purpose, appointment_time FROM appointments WHERE appointment_date = '" . date('Y-m-d') . "' ORDER BY appointment_time ASC");
 
 function badgeClass($status) {
     if ($status === 'Approved') {

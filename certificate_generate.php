@@ -102,8 +102,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'print
         exit;
     }
     logActivity($conn, 'printed', 'certificates', 'Printed certificate', $certificateId);
-    $stmt = $conn->prepare("UPDATE certificates SET status = 'Released', approved_date = CURDATE() WHERE id = ? AND status = 'Approved'");
-    $stmt->bind_param('i', $certificateId);
+    $stmt = $conn->prepare("UPDATE certificates SET status = 'Released', approved_date = ? WHERE id = ? AND status = 'Approved'");
+    $releasedOn = date('Y-m-d');
+    $stmt->bind_param('si', $releasedOn, $certificateId);
     $stmt->execute();
     if ($stmt->affected_rows > 0) {
         logActivity($conn, 'released', 'certificates', 'Released certificate after printing.', $certificateId);
