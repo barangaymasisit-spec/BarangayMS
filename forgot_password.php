@@ -13,9 +13,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $email = trim($_POST['email'] ?? '');
+    // Reuses the login throttle (20 per 15 min per IP or email) so nobody can flood an inbox with reset emails.
+    $resetKey = 'reset:' . strtolower($email);
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address.';
+    } elseif (isLoginRateLimited($conn, $resetKey)) {
+        $error = 'Too many reset requests. Please wait 15 minutes before trying again.';
     } else {
+        recordLoginAttempt($conn, $resetKey, false);
         ensurePasswordResetTable($conn);
         $stmt = $conn->prepare('SELECT id, first_name FROM users WHERE email = ? AND status = "Active" LIMIT 1');
         $stmt->bind_param('s', $email);

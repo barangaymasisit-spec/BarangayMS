@@ -59,6 +59,8 @@ function nextTrackingNumber(mysqli $conn): string {
     return $candidate;
 }
 
+$statusOptions = ['Pending', 'Ongoing', 'Resolved'];
+
 $values = [
     'tracking_number' => $complaint['tracking_number'] ?? nextTrackingNumber($conn),
     'resident_id'     => $complaint['resident_id'] ?? '',
@@ -109,6 +111,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please choose a complaint category.';
     } elseif ($values['description'] === '') {
         $error = 'Please describe the complaint.';
+    } elseif (!in_array($values['status'], $statusOptions, true)) {
+        $error = 'Invalid complaint status.';
     } else {
         $check = $conn->prepare('SELECT id FROM complaints WHERE tracking_number = ? AND id <> ? LIMIT 1');
         $checkId = $complaint ? $id : 0;
@@ -163,7 +167,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $showForm = $isNew || $isEdit;
 $title = $isNew ? 'New Complaint' : ($isEdit ? 'Edit Complaint' : 'Complaint Details');
 $categoryOptions = ['Noise Complaint', 'Boundary Dispute', 'Property Damage', 'Theft', 'Physical Injury', 'Domestic Dispute', 'Public Disturbance', 'Others'];
-$statusOptions = ['Pending', 'Ongoing', 'Resolved'];
 ?>
 <!DOCTYPE html>
 <html lang="en">

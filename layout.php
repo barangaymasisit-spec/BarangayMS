@@ -33,7 +33,7 @@ $rolePages = [
     'staff' => [
         'dashboard.php', 'residents.php', 'resident_form.php',
         'certificates.php', 'certificate_form.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php',
-        'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'settings.php', 'logout.php',
+        'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'logout.php',
     ],
     'health_worker' => ['dashboard.php', 'residents.php', 'logout.php'],
     'security_force' => ['dashboard.php', 'emergency.php', 'logout.php'],

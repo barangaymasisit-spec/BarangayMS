@@ -488,7 +488,7 @@ $activeFilters = [
 
                                     <td>
 
-                                        <span class="status <?php echo strtolower((string)$row['status']); ?>">
+                                        <span class="status <?php echo h(strtolower((string)$row['status'])); ?>">
 
                                             <?php echo h($row['status']); ?>
 

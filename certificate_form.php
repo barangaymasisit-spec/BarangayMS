@@ -44,6 +44,8 @@ $residents = $isResident
     ? $conn->query('SELECT id, resident_number, first_name, last_name FROM residents WHERE id = ' . (int)$currentResident['id'])
     : $conn->query('SELECT id, resident_number, first_name, last_name FROM residents ORDER BY last_name ASC, first_name ASC');
 
+$statusOptions = ['Pending', 'Approved', 'Released', 'Rejected'];
+
 $values = [
     'resident_id'      => $certificate['resident_id'] ?? '',
     'certificate_type' => $certificate['certificate_type'] ?? '',
@@ -71,6 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please choose the resident requesting the certificate.';
     } elseif ($values['certificate_type'] === '') {
         $error = 'Please choose a certificate type.';
+    } elseif (!in_array($values['status'], $statusOptions, true)) {
+        $error = 'Invalid certificate status.';
     } elseif ($values['request_date'] === '') {
         $error = 'Request date is required.';
     } else {
@@ -116,7 +120,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $showForm = $isNew || $isEdit;
 $title = $isNew ? 'New Certificate Request' : ($isEdit ? 'Edit Certificate Request' : 'Certificate Request Details');
 $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate of Indigency', 'Business Clearance', 'Good Moral'];
-$statusOptions = ['Pending', 'Approved', 'Released', 'Rejected'];
 ?>
 <!DOCTYPE html>
 <html lang="en">

@@ -43,6 +43,8 @@ $residents = $isResident
     ? $conn->query('SELECT id, resident_number, first_name, last_name FROM residents WHERE id = ' . (int)$currentResident['id'])
     : $conn->query('SELECT id, resident_number, first_name, last_name FROM residents ORDER BY last_name ASC, first_name ASC');
 
+$statusOptions = ['Pending', 'Approved', 'Cancelled'];
+
 $values = [
     'resident_id'      => $appointment['resident_id'] ?? '',
     'resident_name'    => $appointment['resident_name'] ?? '',
@@ -89,6 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Appointment date is required.';
     } elseif ($values['appointment_time'] === '') {
         $error = 'Appointment time is required.';
+    } elseif (!in_array($values['status'], $statusOptions, true)) {
+        $error = 'Invalid appointment status.';
     } else {
         if ($appointment) {
             $stmt = $conn->prepare('UPDATE appointments SET resident_id = ?, resident_name = ?, purpose = ?, appointment_date = ?, appointment_time = ?, status = ?, notes = ? WHERE id = ?');
@@ -131,7 +135,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $showForm = $isNew || $isEdit;
 $title = $isNew ? 'New Appointment' : ($isEdit ? 'Edit Appointment' : 'Appointment Details');
-$statusOptions = ['Pending', 'Approved', 'Cancelled'];
 $purposeOptions = ['Barangay Clearance', 'Certificate Request', 'Complaint Hearing', 'Business Permit', 'Consultation', 'Others'];
 ?>
 <!DOCTYPE html>

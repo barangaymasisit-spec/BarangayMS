@@ -100,8 +100,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'ad
         $officialError = 'Please provide valid administrator name, username, and email details.';
     } elseif (!in_array($status, ['Active', 'Inactive'], true)) {
         $officialError = 'Invalid administrator status.';
-    } elseif ($adminId === 0 && strlen($password) < 6) {
-        $officialError = 'A new administrator password must be at least 6 characters.';
+    } elseif (($adminId === 0 || $password !== '') && !validatePasswordStrength($password)['valid']) {
+        $officialError = implode(' ', validatePasswordStrength($password)['errors']);
     } else {
         $stmt = $conn->prepare('SELECT id FROM users WHERE (BINARY username = ? OR email = ?) AND id <> ? LIMIT 1');
         $stmt->bind_param('ssi', $username, $email, $adminId);
@@ -189,8 +189,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
         $officialError = 'Term Start must be on or before Term End.';
     } elseif ($status === 'Active' && $termEnd !== null && $termEnd < date('Y-m-d')) {
         $officialError = 'Term End date has already passed. Extend it (re-elected) or set the status to Inactive.';
-    } elseif ($officialId === 0 && strlen($password) < 6) {
-        $officialError = 'A new official password must be at least 6 characters.';
+    } elseif (($officialId === 0 || $password !== '') && !validatePasswordStrength($password)['valid']) {
+        $officialError = implode(' ', validatePasswordStrength($password)['errors']);
     } elseif ($photoFile && $photoFile['error'] !== UPLOAD_ERR_NO_FILE && ($photoFile['error'] !== UPLOAD_ERR_OK || $photoFile['size'] > 5 * 1024 * 1024 || !isset($allowedPhotoTypes[mime_content_type($photoFile['tmp_name'])]))) {
         $officialError = 'Photo must be a JPG, PNG, or WEBP image no larger than 5 MB.';
     } else {

@@ -146,7 +146,8 @@ function setPersistentAuthCookie(array $user): void {
         'exp' => time() + (30 * 24 * 60 * 60),
     ], JSON_THROW_ON_ERROR));
     $payload = rtrim(strtr($payload, '+/', '-_'), '=');
-    $signature = hash_hmac('sha256', $payload, authCookieSecret());
+    // Keyed on the password hash too, so changing the password signs out every remembered device.
+    $signature = hash_hmac('sha256', $payload, authCookieSecret() . $user['password_hash']);
     $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
         || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
     setcookie('BARANGAY_AUTH', $payload . '.' . $signature, [
@@ -194,23 +195,21 @@ function restorePersistentAuthSession(mysqli $conn): void {
     }
 
     [$payload, $signature] = array_pad(explode('.', (string)$_COOKIE['BARANGAY_AUTH'], 2), 2, '');
-    if ($payload === '' || $signature === '' || !hash_equals(hash_hmac('sha256', $payload, authCookieSecret()), $signature)) {
+    // The payload is only trusted after the signature check below.
+    $decoded = json_decode((string)base64_decode(strtr($payload, '-_', '+/')), true);
+    $userId = (int)($decoded['id'] ?? 0);
+    if ($signature === '' || $userId < 1 || (int)($decoded['exp'] ?? 0) < time()) {
         clearPersistentAuthCookie();
         return;
     }
 
-    $decoded = json_decode(base64_decode(strtr($payload, '-_', '+/')), true);
-    $userId = (int)($decoded['id'] ?? 0);
-    if ($userId < 1 || (int)($decoded['exp'] ?? 0) < time()) {
-        return;
-    }
-
-    $stmt = $conn->prepare('SELECT id, first_name, last_name, username, email, role FROM users WHERE id = ? AND status = \'Active\' LIMIT 1');
+    $stmt = $conn->prepare('SELECT id, first_name, last_name, username, email, role, password_hash FROM users WHERE id = ? AND status = \'Active\' LIMIT 1');
     $stmt->bind_param('i', $userId);
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
     $stmt->close();
-    if (!$user) {
+    if (!$user || !hash_equals(hash_hmac('sha256', $payload, authCookieSecret() . $user['password_hash']), $signature)) {
+        clearPersistentAuthCookie();
         return;
     }
 
@@ -262,6 +261,10 @@ function applyNoStoreHeaders(): void {
     header('Pragma: no-cache');
     header('Expires: 0');
     header('X-Accel-Buffering: no');
+    // No page is meant to be framed (blocks clickjacking), and reset-password tokens in the URL must not leak via Referer.
+    header('X-Frame-Options: DENY');
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: same-origin');
 }
 
 function refreshSessionCsrfToken(): void {
