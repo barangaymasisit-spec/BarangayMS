@@ -908,9 +908,7 @@ $logoSrc = !empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $settin
                     </form>
 
                     <p class="mb-1"><strong>Automatic backups</strong> <small class="text-muted">(daily at 5:00 PM, last <?php echo AUTO_BACKUPS_KEPT; ?> kept)</small></p>
-                    <?php if (!$savedBackups): ?>
-                        <p class="text-muted">None yet. The first one is saved at 5:00 PM.</p>
-                    <?php else: ?>
+                    <?php if ($savedBackups): ?>
                         <ul class="list-unstyled mb-3">
                             <?php foreach ($savedBackups as $saved): ?>
                                 <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
