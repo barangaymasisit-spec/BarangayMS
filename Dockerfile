@@ -14,4 +14,4 @@ ENV PORT=8080
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "php -d display_errors=0 -d log_errors=1 -S 0.0.0.0:${PORT} -t /var/www/html"]
+CMD ["sh", "-c", "php -d display_errors=0 -d log_errors=1 -d upload_max_filesize=64M -d post_max_size=64M -S 0.0.0.0:${PORT} -t /var/www/html"]

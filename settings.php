@@ -49,8 +49,107 @@ if ($adminResult->num_rows === 0) {
 }
 $admin = $adminResult->fetch_assoc();
 
+const BACKUP_HEADER = '-- BarangayMS database backup';
+// Sessions, login throttling and reset tokens are live security state, not records worth restoring.
+const BACKUP_SKIP_TABLES = ['php_sessions', 'login_attempts', 'password_resets'];
+
+function streamDatabaseBackup(mysqli $conn): void {
+    echo BACKUP_HEADER, "\n-- Created: ", date('Y-m-d H:i:s'), "\n\n";
+    echo "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\n\n";
+
+    $tables = $conn->query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")->fetch_all();
+    foreach ($tables as [$table]) {
+        if (in_array($table, BACKUP_SKIP_TABLES, true)) {
+            continue;
+        }
+        $createSql = $conn->query('SHOW CREATE TABLE `' . $table . '`')->fetch_row()[1];
+        echo "DROP TABLE IF EXISTS `$table`;\n$createSql;\n";
+
+        $rows = $conn->query('SELECT * FROM `' . $table . '`', MYSQLI_USE_RESULT);
+        $batch = [];
+        while (true) {
+            $row = $rows->fetch_row();
+            if ($row) {
+                $batch[] = '(' . implode(',', array_map(
+                    fn($value) => $value === null ? 'NULL' : "'" . $conn->real_escape_string($value) . "'",
+                    $row
+                )) . ')';
+            }
+            if ($batch && (!$row || count($batch) === 200)) {
+                echo "INSERT INTO `$table` VALUES\n", implode(",\n", $batch), ";\n";
+                $batch = [];
+            }
+            if (!$row) {
+                break;
+            }
+        }
+        $rows->free();
+        echo "\n";
+    }
+
+    echo "SET FOREIGN_KEY_CHECKS = 1;\n";
+}
+
+function restoreDatabaseBackup(mysqli $conn, string $sql): void {
+    try {
+        $conn->multi_query($sql);
+        do {
+            if ($result = $conn->store_result()) {
+                $result->free();
+            }
+        } while ($conn->more_results() && $conn->next_result());
+    } finally {
+        $conn->query('SET FOREIGN_KEY_CHECKS = 1');
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $formType = $_POST['form_type'] ?? '';
+
+    // settings.php is also open to staff; backup/restore expose and replace every record, so admins only.
+    if (($formType === 'backup' || $formType === 'restore') && ($_SESSION['role'] ?? '') !== 'admin') {
+        $error = 'Only administrators can back up or restore the database.';
+        $formType = '';
+    }
+
+    if ($formType === 'backup') {
+        // Logged before dumping so the backup file carries its own record.
+        logActivity($conn, 'backup', 'database', 'Downloaded a database backup.');
+        header('Content-Type: application/sql; charset=utf-8');
+        header('Content-Disposition: attachment; filename="barangayms-backup-' . date('Ymd-His') . '.sql"');
+        streamDatabaseBackup($conn);
+        exit;
+    }
+
+    if ($formType === 'restore') {
+        $stmt = $conn->prepare('SELECT password_hash FROM users WHERE id = ? LIMIT 1');
+        $currentUserId = (int)$_SESSION['user_id'];
+        $stmt->bind_param('i', $currentUserId);
+        $stmt->execute();
+        $currentHash = (string)($stmt->get_result()->fetch_row()[0] ?? '');
+        $stmt->close();
+
+        $backupFile = $_FILES['backup_file'] ?? null;
+        if (!password_verify($_POST['restore_password'] ?? '', $currentHash)) {
+            $error = 'Password is incorrect. The database was not restored.';
+        } elseif (!$backupFile || $backupFile['error'] !== UPLOAD_ERR_OK) {
+            $error = 'Choose a backup file to restore (the upload may also be too large).';
+        } else {
+            $backupSql = (string)file_get_contents($backupFile['tmp_name']);
+            if (!str_starts_with($backupSql, BACKUP_HEADER)) {
+                $error = 'That file is not a BarangayMS backup. The database was not restored.';
+            } else {
+                try {
+                    restoreDatabaseBackup($conn, $backupSql);
+                    logActivity($conn, 'restored', 'database', 'Restored the database from ' . basename((string)$backupFile['name']) . '.');
+                    $success = 'Database restored successfully.';
+                } catch (Throwable $e) {
+                    error_log('Database restore failed: ' . $e->getMessage());
+                    $error = 'Restore failed partway: ' . $e->getMessage() . ' Restore a known good backup again.';
+                }
+            }
+        }
+    }
 
     if ($formType === 'barangay') {
         $barangayName = trim($_POST['barangay_name'] ?? '');
@@ -164,12 +263,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $totalResidents = (int)($conn->query('SELECT COUNT(*) FROM residents')->fetch_row()[0] ?? 0);
 $totalAdministrators = (int)($conn->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetch_row()[0] ?? 0);
-$backupFiles = glob(__DIR__ . '/backups/*.sql');
-$totalBackups = $backupFiles ? count($backupFiles) : 0;
-$lastBackup = 'No backup recorded';
-if ($backupFiles) {
-    $lastBackup = date('F d, Y', max(array_map('filemtime', $backupFiles)));
-}
+// Backups download to the admin's computer (Railway's disk resets on deploy), so they are tracked in activity_logs.
+[$totalBackups, $lastBackupAt] = $conn->query("SELECT COUNT(*), MAX(created_at) FROM activity_logs WHERE action = 'backup' AND entity = 'database'")->fetch_row();
+$totalBackups = (int)$totalBackups;
+$lastBackup = $lastBackupAt ? formatDatabaseDateTime($lastBackupAt, 'F d, Y h:i A') : 'No backup recorded';
 $logoSrc = !empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $settings['logo_path'])
     ? $settings['logo_path']
     : 'logo.png';
@@ -834,31 +931,37 @@ $logoSrc = !empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $settin
 
                     </p>
 
-                    <div class="d-grid gap-2">
+                    <?php if (($_SESSION['role'] ?? '') === 'admin'): ?>
 
-                        <button
-                            type="button"
-                            class="btn btn-success js-not-implemented"
-                            aria-label="Backup Database">
-
+                    <form action="settings.php" method="POST" class="d-grid mb-3">
+                        <?php echo csrfField(); ?>
+                        <input type="hidden" name="form_type" value="backup">
+                        <button type="submit" class="btn btn-success">
                             <i class="fa-solid fa-download" aria-hidden="true"></i>
-
                             Backup Database
-
                         </button>
+                    </form>
 
-                        <button
-                            type="button"
-                            class="btn btn-warning js-not-implemented"
-                            aria-label="Restore Database">
-
+                    <form action="settings.php" method="POST" enctype="multipart/form-data" class="d-grid gap-2"
+                        onsubmit="return confirm('Restoring replaces ALL current records with the backup. Continue?');">
+                        <?php echo csrfField(); ?>
+                        <input type="hidden" name="form_type" value="restore">
+                        <label for="backupFile" class="form-label mb-0">Backup file (.sql)</label>
+                        <input type="file" id="backupFile" name="backup_file" class="form-control" accept=".sql" required>
+                        <label for="restorePassword" class="form-label mb-0">Your password</label>
+                        <input type="password" id="restorePassword" name="restore_password" class="form-control" autocomplete="current-password" required>
+                        <small class="text-muted">Restore replaces every current record. Download a fresh backup first.</small>
+                        <button type="submit" class="btn btn-warning">
                             <i class="fa-solid fa-upload" aria-hidden="true"></i>
-
                             Restore Database
-
                         </button>
+                    </form>
 
-                    </div>
+                    <?php else: ?>
+
+                    <p class="text-muted mb-0">Only administrators can back up or restore the database.</p>
+
+                    <?php endif; ?>
 
                 </div>
 
