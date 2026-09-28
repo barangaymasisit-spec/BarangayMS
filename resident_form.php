@@ -557,17 +557,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </section>
 
                         <section class="form-card">
-                            <h3><i class="fa-solid fa-tags"></i> Categories & Status</h3>
+                            <h3><i class="fa-solid fa-list-check"></i> Special Categories</h3>
+                            <?php $selectedCategories = $resident ? array_map('trim', explode(',', (string)$resident['categories'])) : []; ?>
+                            <div class="checkbox-grid">
+                                <?php foreach (['Senior Citizen', 'Solo Parent', 'PWD', 'Indigenous Person', 'Pregnant Woman', 'Lactating Mother', 'OFW Family', '4Ps Beneficiary', 'Registered Voter'] as $category): ?>
+                                    <label><input type="checkbox" name="categories[]" value="<?php echo h($category); ?>" <?php echo in_array($category, $selectedCategories, true) ? 'checked' : ''; ?>> <?php echo h($category); ?></label>
+                                <?php endforeach; ?>
+                            </div>
+                        </section>
+
+                        <section class="form-card">
+                            <h3><i class="fa-solid fa-tags"></i> Status</h3>
                             <div class="form-grid">
-                                <div style="grid-column: 1 / -1;">
-                                    <label>Special Categories</label>
-                                    <?php $selectedCategories = $resident ? array_map('trim', explode(',', (string)$resident['categories'])) : []; ?>
-                                    <div class="checkbox-grid">
-                                        <?php foreach (['Senior Citizen', 'Solo Parent', 'PWD', 'Indigenous Person', 'Pregnant Woman', 'Lactating Mother', 'OFW Family', '4Ps Beneficiary', 'Registered Voter'] as $category): ?>
-                                            <label><input type="checkbox" name="categories[]" value="<?php echo h($category); ?>" <?php echo in_array($category, $selectedCategories, true) ? 'checked' : ''; ?>> <?php echo h($category); ?></label>
-                                        <?php endforeach; ?>
-                                    </div>
-                                </div>
                                 <div>
                                     <label for="date_registered">Date Registered</label>
                                     <input type="date" id="date_registered" name="dateRegistered" value="<?php echo $resident ? h($resident['date_registered']) : date('Y-m-d'); ?>">
