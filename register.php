@@ -51,7 +51,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = implode(' ', $passwordValidation['errors']);
         } elseif (!isset($_POST['terms'])) {
             $error = 'You must accept the Terms and Conditions.';
+        } elseif (isLoginRateLimited($conn, 'register:' . strtolower($old['resident_number']))) {
+            // Same throttle as login (per IP or per resident number), so resident numbers can't be guessed in bulk.
+            $error = 'Too many registration attempts. Please wait 15 minutes before trying again.';
         } else {
+            // Unconfirmed sign-ups older than a day give their username and email back.
+            $conn->query("DELETE FROM users WHERE status = 'Unverified' AND created_at < UTC_TIMESTAMP() - INTERVAL 1 DAY");
+
             $stmt = $conn->prepare('SELECT id FROM residents WHERE resident_number = ? AND first_name = ? AND last_name = ? AND email = ? LIMIT 1');
             $stmt->bind_param('ssss', $old['resident_number'], $old['first_name'], $old['last_name'], $old['email']);
             $stmt->execute();
@@ -59,32 +65,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->close();
 
             if (!$residentExists) {
+                recordLoginAttempt($conn, 'register:' . strtolower($old['resident_number']), false);
                 $error = 'The information does not match an existing resident record.';
             } else {
-                $stmt = $conn->prepare('SELECT id FROM users WHERE (BINARY username = ? OR email = ?) LIMIT 1');
-                $stmt->bind_param('ss', $old['username'], $old['email']);
+                $residentId = (int)$residentExists['id'];
+                $stmt = $conn->prepare('SELECT id FROM users WHERE BINARY username = ? OR email = ? OR resident_id = ? LIMIT 1');
+                $stmt->bind_param('ssi', $old['username'], $old['email'], $residentId);
                 $stmt->execute();
                 $exists = $stmt->get_result()->fetch_assoc();
                 $stmt->close();
 
                 if ($exists) {
-                    $error = 'That username or email address is already registered.';
+                    $error = 'That username, email address, or resident already has an account.';
                 } else {
+                    // The account stays Unverified until the link sent to the resident's email is opened,
+                    // so knowing someone's details is not enough to take over their records.
+                    $verifyToken = bin2hex(random_bytes(32));
+                    $verifyHash = hash('sha256', $verifyToken);
                     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
                     $role = 'resident';
-                    $status = 'Active';
-                    $stmt = $conn->prepare('INSERT INTO users (first_name, last_name, username, email, password_hash, role, status, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-                    $stmt->bind_param('ssssssss', $old['first_name'], $old['last_name'], $old['username'], $old['email'], $passwordHash, $role, $status, $old['address']);
+                    $status = 'Unverified';
+                    $stmt = $conn->prepare('INSERT INTO users (first_name, last_name, username, email, password_hash, role, status, address, resident_id, email_verify_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->bind_param('ssssssssis', $old['first_name'], $old['last_name'], $old['username'], $old['email'], $passwordHash, $role, $status, $old['address'], $residentId, $verifyHash);
 
                     if ($stmt->execute()) {
+                        $newUserId = (int)$stmt->insert_id;
                         $stmt->close();
-                        logActivity($conn, 'created', 'users', 'Resident account registered via public form.', null, null);
-                        header('Location: auth.php?registered=1');
-                        exit;
-                    }
+                        $settings = $conn->query('SELECT email FROM barangay_settings LIMIT 1')->fetch_assoc() ?: [];
+                        $from = trim((string)($settings['email'] ?? '')) ?: trim((string)(getenv('MAIL_FROM') ?: ''));
+                        $baseUrl = rtrim(trim(getenv('APP_URL') ?: 'https://barangayms.up.railway.app'), '/');
+                        $verifyUrl = $baseUrl . '/verify_email.php?token=' . urlencode($verifyToken);
+                        $body = 'Hello ' . $old['first_name'] . ",\n\nConfirm your email to activate your Barangay Management System account:\n\n" . $verifyUrl . "\n\nThis link expires in 24 hours. If you did not create this account, ignore this email.\n";
 
-                    $error = 'Registration failed. Please try again.';
-                    $stmt->close();
+                        if ($from !== '' && sendSmtpEmail($old['email'], 'Confirm your Barangay MS account', $body, $from)) {
+                            logActivity($conn, 'created', 'users', 'Resident account registered via public form; awaiting email confirmation.', $newUserId, null);
+                            header('Location: auth.php?registered=1');
+                            exit;
+                        }
+
+                        // Without the email the account could never be activated, so do not keep it.
+                        $stmt = $conn->prepare('DELETE FROM users WHERE id = ?');
+                        $stmt->bind_param('i', $newUserId);
+                        $stmt->execute();
+                        $stmt->close();
+                        $error = 'We could not send the confirmation email. Please try again later or visit the barangay office.';
+                    } else {
+                        $error = 'Registration failed. Please try again.';
+                        $stmt->close();
+                    }
                 }
             }
         }

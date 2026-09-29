@@ -69,32 +69,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !verifyCsrfToken()) {
     exit('Invalid or expired form token. Please go back, refresh the page, and try again.');
 }
 
-function notificationCount(mysqli $conn): int {
-    $role = $_SESSION['role'] ?? '';
-    if ($role === 'resident') {
-        $resident = currentResident($conn);
-        if (!$resident) {
-            return 0;
-        }
-        $residentId = (int)$resident['id'];
-        $stmt = $conn->prepare("SELECT
-            (SELECT COUNT(*) FROM certificates WHERE resident_id = ? AND status IN ('Approved', 'Released')) +
-            (SELECT COUNT(*) FROM appointments WHERE resident_id = ? AND status = 'Approved') +
-            (SELECT COUNT(*) FROM complaints WHERE resident_id = ? AND status IN ('Ongoing', 'Resolved')) +
-            (SELECT COUNT(*) FROM emergency_alerts WHERE status = 'Active')");
-        $stmt->bind_param('iii', $residentId, $residentId, $residentId);
-    } else {
-        $stmt = $conn->prepare("SELECT
-            (SELECT COUNT(*) FROM certificates WHERE status = 'Pending') +
-            (SELECT COUNT(*) FROM appointments WHERE status = 'Pending') +
-            (SELECT COUNT(*) FROM complaints WHERE status = 'Pending') +
-            (SELECT COUNT(*) FROM complaints WHERE status = 'Ongoing') +
-            (SELECT COUNT(*) FROM emergency_alerts WHERE status = 'Reported')");
+/**
+ * Office-side notification counts, limited to pages the current role may open
+ * (a health worker is not told about complaints they cannot see). Cached per request.
+ */
+function staffNotifications(mysqli $conn): array {
+    static $items = null;
+    if ($items !== null) {
+        return $items;
     }
+    global $rolePages;
+    $allowedPages = $rolePages[$_SESSION['role'] ?? ''] ?? [];
+    $queries = [
+        ['sql' => "SELECT COUNT(*) FROM certificates WHERE status = 'Pending'", 'text' => 'Pending certificate requests', 'detail' => 'Review certificate approvals', 'href' => 'certificates.php', 'icon' => 'fa-file-lines'],
+        ['sql' => "SELECT COUNT(*) FROM appointments WHERE status = 'Pending'", 'text' => 'Pending appointments', 'detail' => 'Review appointment requests', 'href' => 'appointments.php', 'icon' => 'fa-calendar-check'],
+        ['sql' => "SELECT COUNT(*) FROM complaints WHERE status = 'Pending'", 'text' => 'Pending complaints', 'detail' => 'Review complaint reports', 'href' => 'complaints.php', 'icon' => 'fa-circle-exclamation'],
+        ['sql' => "SELECT COUNT(*) FROM complaints WHERE status = 'Ongoing'", 'text' => 'Ongoing complaints', 'detail' => 'View active complaints', 'href' => 'complaints.php', 'icon' => 'fa-spinner'],
+        ['sql' => "SELECT COUNT(*) FROM emergency_alerts WHERE status = 'Reported'", 'text' => 'Emergency reports to review', 'detail' => 'Broadcast or dismiss resident reports', 'href' => 'emergency.php', 'icon' => 'fa-triangle-exclamation'],
+    ];
+    $items = [];
+    foreach ($queries as $query) {
+        if (!in_array($query['href'], $allowedPages, true)) {
+            continue;
+        }
+        $result = $conn->query($query['sql']);
+        $total = (int)($result ? ($result->fetch_row()[0] ?? 0) : 0);
+        if ($total > 0) {
+            $items[] = ['icon' => $query['icon'], 'text' => $total . ' ' . $query['text'], 'detail' => $query['detail'], 'href' => $query['href'], 'total' => $total];
+        }
+    }
+    return $items;
+}
+
+function notificationCount(mysqli $conn): int {
+    if (($_SESSION['role'] ?? '') !== 'resident') {
+        return array_sum(array_column(staffNotifications($conn), 'total')) + count(officialTermAlerts($conn));
+    }
+    $resident = currentResident($conn);
+    if (!$resident) {
+        return 0;
+    }
+    $residentId = (int)$resident['id'];
+    $stmt = $conn->prepare("SELECT
+        (SELECT COUNT(*) FROM certificates WHERE resident_id = ? AND status IN ('Approved', 'Released')) +
+        (SELECT COUNT(*) FROM appointments WHERE resident_id = ? AND status = 'Approved') +
+        (SELECT COUNT(*) FROM complaints WHERE resident_id = ? AND status IN ('Ongoing', 'Resolved')) +
+        (SELECT COUNT(*) FROM emergency_alerts WHERE status = 'Active')");
+    $stmt->bind_param('iii', $residentId, $residentId, $residentId);
     $stmt->execute();
     $count = (int)$stmt->get_result()->fetch_row()[0];
     $stmt->close();
-    return $count + count(officialTermAlerts($conn));
+    return $count;
 }
 
 function notificationItems(mysqli $conn): array {
@@ -138,22 +163,7 @@ function notificationItems(mysqli $conn): array {
         }
         $stmt->close();
     } else {
-        $items = officialTermAlerts($conn);
-        $queries = [
-            ['sql' => "SELECT COUNT(*) AS total FROM certificates WHERE status = 'Pending'", 'text' => 'Pending certificate requests', 'detail' => 'Review certificate approvals', 'href' => 'certificates.php', 'icon' => 'fa-file-lines'],
-            ['sql' => "SELECT COUNT(*) AS total FROM appointments WHERE status = 'Pending'", 'text' => 'Pending appointments', 'detail' => 'Review appointment requests', 'href' => 'appointments.php', 'icon' => 'fa-calendar-check'],
-            ['sql' => "SELECT COUNT(*) AS total FROM complaints WHERE status = 'Pending'", 'text' => 'Pending complaints', 'detail' => 'Review complaint reports', 'href' => 'complaints.php', 'icon' => 'fa-circle-exclamation'],
-            ['sql' => "SELECT COUNT(*) AS total FROM complaints WHERE status = 'Ongoing'", 'text' => 'Ongoing complaints', 'detail' => 'View active complaints', 'href' => 'complaints.php', 'icon' => 'fa-spinner'],
-            ['sql' => "SELECT COUNT(*) AS total FROM emergency_alerts WHERE status = 'Reported'", 'text' => 'Emergency reports to review', 'detail' => 'Broadcast or dismiss resident reports', 'href' => 'emergency.php', 'icon' => 'fa-triangle-exclamation'],
-        ];
-        foreach ($queries as $query) {
-            $result = $conn->query($query['sql']);
-            $total = (int)($result ? ($result->fetch_assoc()['total'] ?? 0) : 0);
-            if ($total > 0) {
-                $query['text'] = $total . ' ' . $query['text'];
-                $items[] = $query;
-            }
-        }
+        $items = array_merge(officialTermAlerts($conn), staffNotifications($conn));
     }
 
     return array_slice($items, 0, 8);

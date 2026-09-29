@@ -137,6 +137,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($error === '' && $postId > 0) {
+        // The edit page has no health blood type field; keep the saved value instead of blanking it.
+        if (!isset($_POST['bloodTypeHealth'])) {
+            unset($data['blood_type_health']);
+        }
         // Build update statement
         $cols = [];
         $types = '';

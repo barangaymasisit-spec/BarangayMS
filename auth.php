@@ -48,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             recordLoginAttempt($conn, $username, false);
         } else {
             $userId = (int)$user['id'];
-            if ($user['status'] !== 'Active') {
+            if (!in_array($user['status'], ['Active', 'Unverified'], true)) {
                 $error = 'Invalid username or password.';
                 recordLoginAttempt($conn, $username, false);
             } elseif (isUserLockedOut($conn, $userId)) {
@@ -61,6 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 logActivity($conn, 'login_failed', 'users', 'Failed login attempt for username: ' . $username, $userId, $userId);
             } elseif (!in_array($user['role'], ['admin', 'staff', 'health_worker', 'security_force', 'resident'], true)) {
                 $error = 'Invalid username or password.';
+            } elseif ($user['status'] === 'Unverified') {
+                // Only said after the correct password, so it reveals nothing to someone guessing.
+                $error = 'Please confirm your email first. Open the link we sent to your inbox (check Spam too).';
             } else {
                 clearFailedLogin($conn, $userId);
                 session_regenerate_id(true);
@@ -131,9 +134,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         <?php endif; ?>
 
+        <?php if (isset($_GET['verified'])): ?>
+            <div class="success-message" role="status">
+                Your email is confirmed. You may now log in.
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($_GET['verify_failed'])): ?>
+            <div class="error-message" role="alert">
+                That confirmation link is invalid or has expired. Please register again.
+            </div>
+        <?php endif; ?>
+
         <?php if (isset($_GET['registered'])): ?>
             <div class="success-message" role="status">
-                Account created successfully. You may now log in.
+                Almost done! We sent a confirmation link to your email. Open it to activate your account, then log in.
             </div>
         <?php endif; ?>
 

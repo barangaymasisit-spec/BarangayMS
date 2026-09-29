@@ -12,6 +12,15 @@ if (!in_array($role, ['admin', 'resident'], true)) {
     exit;
 }
 
+function recentEmergencyReports(mysqli $conn, int $residentId): int {
+    $stmt = $conn->prepare('SELECT COUNT(*) FROM emergency_alerts WHERE resident_id = ? AND created_at >= UTC_TIMESTAMP() - INTERVAL 1 HOUR');
+    $stmt->bind_param('i', $residentId);
+    $stmt->execute();
+    $count = (int)$stmt->get_result()->fetch_row()[0];
+    $stmt->close();
+    return $count;
+}
+
 $error = '';
 $categoryOptions = [
     'Earthquake',
@@ -31,6 +40,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please choose the type of natural disaster.';
     } elseif ($description === '') {
         $error = 'Please describe the emergency.';
+    } elseif ($resident && recentEmergencyReports($conn, (int)$resident['id']) >= 3) {
+        // Keeps one resident from flooding the office; real emergencies rarely need more than 3 reports an hour.
+        $error = 'You have sent 3 emergency reports in the last hour. Please call the barangay office if you need more help.';
     } else {
         $trackingNumber = nextEmergencyTrackingNumber($conn);
         $residentId = $resident ? (int)$resident['id'] : null;

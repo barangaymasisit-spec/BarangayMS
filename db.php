@@ -123,12 +123,54 @@ function currentResident(mysqli $conn): ?array {
         return null;
     }
 
-    $stmt = $conn->prepare('SELECT * FROM residents WHERE first_name = ? AND last_name = ? AND email = ? LIMIT 1');
-    $stmt->bind_param('sss', $_SESSION['first_name'], $_SESSION['last_name'], $_SESSION['email']);
+    // Accounts are linked to their resident record by ID, so renaming a resident or
+    // changing their email does not cut them off from their own records.
+    $userId = (int)($_SESSION['user_id'] ?? 0);
+    $stmt = $conn->prepare('SELECT r.* FROM users u JOIN residents r ON r.id = u.resident_id WHERE u.id = ? LIMIT 1');
+    $stmt->bind_param('i', $userId);
     $stmt->execute();
     $resident = $stmt->get_result()->fetch_assoc();
     $stmt->close();
+    if ($resident) {
+        return $resident;
+    }
+
+    // Accounts made before the link existed: match once by name and email, then save the link.
+    $stmt = $conn->prepare('SELECT r.* FROM residents r WHERE r.first_name = ? AND r.last_name = ? AND r.email = ?
+        AND NOT EXISTS (SELECT 1 FROM users other WHERE other.resident_id = r.id AND other.id <> ?)
+        AND EXISTS (SELECT 1 FROM users me WHERE me.id = ? AND me.resident_id IS NULL) LIMIT 1');
+    $stmt->bind_param('sssii', $_SESSION['first_name'], $_SESSION['last_name'], $_SESSION['email'], $userId, $userId);
+    $stmt->execute();
+    $resident = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if ($resident) {
+        $residentId = (int)$resident['id'];
+        $stmt = $conn->prepare('UPDATE users SET resident_id = ? WHERE id = ? AND resident_id IS NULL');
+        $stmt->bind_param('ii', $residentId, $userId);
+        $stmt->execute();
+        $stmt->close();
+    }
     return $resident ?: null;
+}
+
+/**
+ * users.resident_id links a resident account to its record; email_verify_hash and the
+ * 'Unverified' status hold a self-registered account until its email is confirmed.
+ */
+function ensureUserAccountColumns(mysqli $conn): void {
+    $columns = [];
+    foreach ($conn->query("SHOW COLUMNS FROM users WHERE Field IN ('resident_id', 'email_verify_hash', 'status')")->fetch_all(MYSQLI_ASSOC) as $column) {
+        $columns[$column['Field']] = strtolower($column['Type']);
+    }
+    if (!isset($columns['resident_id'])) {
+        $conn->query('ALTER TABLE users ADD COLUMN resident_id INT UNSIGNED NULL, ADD KEY idx_users_resident_id (resident_id)');
+    }
+    if (!isset($columns['email_verify_hash'])) {
+        $conn->query('ALTER TABLE users ADD COLUMN email_verify_hash CHAR(64) NULL');
+    }
+    if (isset($columns['status']) && str_starts_with($columns['status'], 'enum(') && !str_contains($columns['status'], "'unverified'")) {
+        $conn->query("ALTER TABLE users MODIFY COLUMN status ENUM('Active','Inactive','Unverified') NOT NULL DEFAULT 'Active'");
+    }
 }
 
 // Lowest free RES- number, so deleted numbers get reused before new ones.
@@ -768,5 +810,6 @@ function nextEmergencyTrackingNumber(mysqli $conn): string {
 
 ensureActivityLogsTable($conn);
 ensureEmergencyAlertsTable($conn);
+ensureUserAccountColumns($conn);
 expireOfficialTerms($conn);
 runScheduledBackup($conn);

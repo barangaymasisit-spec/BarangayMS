@@ -11,6 +11,9 @@ RUN mkdir -p /var/www/html/uploads \
     && rm -f /var/www/html/install_db.php
 
 ENV PORT=8080
+# The built-in server handles one request at a time by default; workers let a slow
+# request (backup, upload) run without freezing everyone else.
+ENV PHP_CLI_SERVER_WORKERS=4
 
 EXPOSE 8080
 
