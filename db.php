@@ -721,6 +721,52 @@ function runScheduledBackup(mysqli $conn): void {
     }
 }
 
+/**
+ * Emergency alerts live apart from complaints. Status flow:
+ * Reported (a resident's report, not yet broadcast) -> Active (sent to all residents) -> Resolved.
+ * On first run, EMG- reports that used to be stored as complaints are moved here.
+ */
+function ensureEmergencyAlertsTable(mysqli $conn): void {
+    if ($conn->query("SHOW TABLES LIKE 'emergency_alerts'")->num_rows > 0) {
+        return;
+    }
+    $conn->query(
+        "CREATE TABLE IF NOT EXISTS emergency_alerts (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            tracking_number VARCHAR(50) NOT NULL,
+            category VARCHAR(100) NOT NULL,
+            description TEXT NOT NULL,
+            resident_id INT UNSIGNED NULL,
+            reported_by VARCHAR(150) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'Reported',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uniq_emergency_alerts_tracking (tracking_number),
+            KEY idx_emergency_alerts_status (status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+    $conn->query(
+        "INSERT IGNORE INTO emergency_alerts (tracking_number, category, description, resident_id, reported_by, status, created_at)
+         SELECT tracking_number, category, COALESCE(description, ''), resident_id, resident_name,
+                CASE status WHEN 'Ongoing' THEN 'Active' WHEN 'Resolved' THEN 'Resolved' ELSE 'Reported' END,
+                date_filed
+         FROM complaints WHERE tracking_number LIKE 'EMG-%' ORDER BY id"
+    );
+    $conn->query("DELETE FROM complaints WHERE tracking_number LIKE 'EMG-%'");
+}
+
+function nextEmergencyTrackingNumber(mysqli $conn): string {
+    $prefix = 'EMG-' . date('Y') . '-';
+    $stmt = $conn->prepare("SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(tracking_number, '-', -1) AS UNSIGNED)), 0) + 1 FROM emergency_alerts WHERE tracking_number LIKE CONCAT(?, '%')");
+    $stmt->bind_param('s', $prefix);
+    $stmt->execute();
+    $next = (int)$stmt->get_result()->fetch_row()[0];
+    $stmt->close();
+    return $prefix . str_pad((string)$next, 4, '0', STR_PAD_LEFT);
+}
+
 ensureActivityLogsTable($conn);
+ensureEmergencyAlertsTable($conn);
 expireOfficialTerms($conn);
 runScheduledBackup($conn);

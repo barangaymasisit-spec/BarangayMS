@@ -32,23 +32,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($description === '') {
         $error = 'Please describe the emergency.';
     } else {
-        $year = date('Y');
-        $count = (int)($conn->query('SELECT COUNT(*) FROM complaints')->fetch_row()[0] ?? 0) + 1;
-        $trackingNumber = 'EMG-' . $year . '-' . str_pad((string)$count, 4, '0', STR_PAD_LEFT);
+        $trackingNumber = nextEmergencyTrackingNumber($conn);
         $residentId = $resident ? (int)$resident['id'] : null;
-        $residentName = $resident
+        $reportedBy = $resident
             ? trim($resident['first_name'] . ' ' . $resident['last_name'])
             : 'Barangay Office';
-        $status = 'Ongoing';
-        $dateFiled = date('Y-m-d');
-        $stmt = $conn->prepare('INSERT INTO complaints (tracking_number, resident_id, resident_name, category, status, date_filed, description) VALUES (?, ?, ?, ?, ?, ?, ?)');
-        $stmt->bind_param('sisssss', $trackingNumber, $residentId, $residentName, $category, $status, $dateFiled, $description);
+        // The office's own alert goes straight out to residents; a resident's report waits for review.
+        $status = $resident ? 'Reported' : 'Active';
+        $stmt = $conn->prepare('INSERT INTO emergency_alerts (tracking_number, category, description, resident_id, reported_by, status) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->bind_param('sssiss', $trackingNumber, $category, $description, $residentId, $reportedBy, $status);
         if ($stmt->execute()) {
+            $alertId = (int)$stmt->insert_id;
             $stmt->close();
-            header('Location: ' . ($role === 'resident' ? 'resident_dashboard.php' : 'emergency.php?msg=created'));
+            logActivity($conn, 'created', 'emergency_alerts', $resident ? 'Reported an emergency.' : 'Sent an emergency alert.', $alertId);
+            header('Location: ' . ($role === 'resident' ? 'resident_dashboard.php?msg=emergency_reported' : 'emergency.php?msg=sent'));
             exit;
         }
-        $error = 'The emergency report could not be submitted.';
+        $error = $resident ? 'The emergency report could not be submitted.' : 'The emergency alert could not be sent.';
         $stmt->close();
     }
 }
@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <?php pageTitle('New Emergency Report'); ?>
+    <?php pageTitle($resident ? 'Report an Emergency' : 'Send Emergency Alert'); ?>
     <link rel="stylesheet" href="<?php echo asset('complaints.css'); ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
 </head>
@@ -66,11 +66,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <div class="wrapper">
     <?php renderSidebar($role === 'resident' ? 'resident_emergency' : 'emergency', 'compact'); ?>
     <main class="main-content">
-        <?php renderTopbar('New Emergency Report', 'Report a natural disaster to the barangay office.', 'compact', ['clock' => true]); ?>
+        <?php $resident
+            ? renderTopbar('Report an Emergency', 'Report a natural disaster to the barangay office.', 'compact', ['clock' => true])
+            : renderTopbar('Send Emergency Alert', 'Broadcast an alert to every resident.', 'compact', ['clock' => true]); ?>
         <div class="content-card emergency-form-card">
             <div class="emergency-form-heading">
                 <div class="emergency-form-icon"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></div>
-                <h3>Emergency Report Details</h3>
+                <h3><?php echo $resident ? 'Emergency Report Details' : 'Alert Details'; ?></h3>
             </div>
             <?php if ($error !== ''): ?><div class="alert alert-danger" role="alert"><?php echo h($error); ?></div><?php endif; ?>
             <form method="post" class="emergency-form">
@@ -89,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <textarea id="description" name="description" rows="7" required placeholder="Describe what happened, where it happened, and the assistance needed."><?php echo h($description); ?></textarea>
                 </div>
                 <div class="emergency-form-actions">
-                    <button type="submit" class="btn btn-danger"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Send Emergency Report</button>
+                    <button type="submit" class="btn btn-danger"><i class="fa-solid fa-<?php echo $resident ? 'paper-plane' : 'bullhorn'; ?>" aria-hidden="true"></i> <?php echo $resident ? 'Send Emergency Report' : 'Send Alert to Residents'; ?></button>
                     <a href="<?php echo $role === 'resident' ? 'resident_dashboard.php' : 'emergency.php'; ?>" class="btn btn-link"><i class="fa-solid fa-xmark" aria-hidden="true"></i> Cancel</a>
                 </div>
             </form>

@@ -80,14 +80,16 @@ function notificationCount(mysqli $conn): int {
         $stmt = $conn->prepare("SELECT
             (SELECT COUNT(*) FROM certificates WHERE resident_id = ? AND status IN ('Approved', 'Released')) +
             (SELECT COUNT(*) FROM appointments WHERE resident_id = ? AND status = 'Approved') +
-            (SELECT COUNT(*) FROM complaints WHERE resident_id = ? AND status IN ('Ongoing', 'Resolved'))");
+            (SELECT COUNT(*) FROM complaints WHERE resident_id = ? AND status IN ('Ongoing', 'Resolved')) +
+            (SELECT COUNT(*) FROM emergency_alerts WHERE status = 'Active')");
         $stmt->bind_param('iii', $residentId, $residentId, $residentId);
     } else {
         $stmt = $conn->prepare("SELECT
             (SELECT COUNT(*) FROM certificates WHERE status = 'Pending') +
             (SELECT COUNT(*) FROM appointments WHERE status = 'Pending') +
             (SELECT COUNT(*) FROM complaints WHERE status = 'Pending') +
-            (SELECT COUNT(*) FROM complaints WHERE status = 'Ongoing')");
+            (SELECT COUNT(*) FROM complaints WHERE status = 'Ongoing') +
+            (SELECT COUNT(*) FROM emergency_alerts WHERE status = 'Reported')");
     }
     $stmt->execute();
     $count = (int)$stmt->get_result()->fetch_row()[0];
@@ -105,6 +107,10 @@ function notificationItems(mysqli $conn): array {
             return [];
         }
         $residentId = (int)$resident['id'];
+        $alerts = $conn->query("SELECT category, description FROM emergency_alerts WHERE status = 'Active' ORDER BY created_at DESC LIMIT 5");
+        while ($row = $alerts->fetch_assoc()) {
+            $items[] = ['icon' => 'fa-triangle-exclamation', 'text' => 'Emergency alert: ' . $row['category'], 'detail' => $row['description'], 'href' => 'resident_dashboard.php'];
+        }
         $stmt = $conn->prepare("SELECT certificate_type, status FROM certificates WHERE resident_id = ? AND status IN ('Approved', 'Released') ORDER BY updated_at DESC LIMIT 5");
         $stmt->bind_param('i', $residentId);
         $stmt->execute();
@@ -137,7 +143,8 @@ function notificationItems(mysqli $conn): array {
             ['sql' => "SELECT COUNT(*) AS total FROM certificates WHERE status = 'Pending'", 'text' => 'Pending certificate requests', 'detail' => 'Review certificate approvals', 'href' => 'certificates.php', 'icon' => 'fa-file-lines'],
             ['sql' => "SELECT COUNT(*) AS total FROM appointments WHERE status = 'Pending'", 'text' => 'Pending appointments', 'detail' => 'Review appointment requests', 'href' => 'appointments.php', 'icon' => 'fa-calendar-check'],
             ['sql' => "SELECT COUNT(*) AS total FROM complaints WHERE status = 'Pending'", 'text' => 'Pending complaints', 'detail' => 'Review complaint reports', 'href' => 'complaints.php', 'icon' => 'fa-circle-exclamation'],
-            ['sql' => "SELECT COUNT(*) AS total FROM complaints WHERE status = 'Ongoing'", 'text' => 'Ongoing complaints', 'detail' => 'View active complaints', 'href' => 'complaints.php', 'icon' => 'fa-triangle-exclamation'],
+            ['sql' => "SELECT COUNT(*) AS total FROM complaints WHERE status = 'Ongoing'", 'text' => 'Ongoing complaints', 'detail' => 'View active complaints', 'href' => 'complaints.php', 'icon' => 'fa-spinner'],
+            ['sql' => "SELECT COUNT(*) AS total FROM emergency_alerts WHERE status = 'Reported'", 'text' => 'Emergency reports to review', 'detail' => 'Broadcast or dismiss resident reports', 'href' => 'emergency.php', 'icon' => 'fa-triangle-exclamation'],
         ];
         foreach ($queries as $query) {
             $result = $conn->query($query['sql']);

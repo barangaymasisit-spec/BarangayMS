@@ -18,6 +18,7 @@ $result = $conn->query("SELECT CONCAT(
     COALESCE((SELECT MAX(updated_at) FROM households), '1970-01-01 00:00:00'), '|',
     COALESCE((SELECT MAX(updated_at) FROM certificates), '1970-01-01 00:00:00'), '|',
     COALESCE((SELECT MAX(updated_at) FROM complaints), '1970-01-01 00:00:00'), '|',
+    COALESCE((SELECT MAX(updated_at) FROM emergency_alerts), '1970-01-01 00:00:00'), '|',
     COALESCE((SELECT MAX(updated_at) FROM appointments), '1970-01-01 00:00:00'), '|',
     COALESCE((SELECT MAX(id) FROM activity_logs), 0)
 ) AS version");

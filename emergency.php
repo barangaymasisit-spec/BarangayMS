@@ -1,11 +1,36 @@
 <?php
 require_once __DIR__ . '/layout.php';
 
-$activeAlerts = $conn->query("SELECT id, tracking_number, resident_name, category, date_filed, description FROM complaints WHERE status = 'Ongoing' ORDER BY date_filed DESC");
-$pendingAlerts = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Pending'")->fetch_row()[0] ?? 0);
-$ongoingAlerts = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Ongoing'")->fetch_row()[0] ?? 0);
-$resolvedAlerts = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved'")->fetch_row()[0] ?? 0);
-$todayAlerts = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE date_filed = '" . date('Y-m-d') . "'")->fetch_row()[0] ?? 0);
+$isAdmin = ($_SESSION['role'] ?? '') === 'admin';
+
+// Admin actions: broadcast a resident's report to everyone, dismiss it, or mark a sent alert resolved.
+if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['id'])) {
+    $alertId = (int)$_POST['id'];
+    $transitions = ['broadcast' => ['Reported', 'Active'], 'resolve' => ['Active', 'Resolved'], 'dismiss' => ['Reported', 'Resolved']];
+    $action = $_POST['action'] ?? '';
+    if (isset($transitions[$action])) {
+        [$from, $to] = $transitions[$action];
+        $stmt = $conn->prepare('UPDATE emergency_alerts SET status = ? WHERE id = ? AND status = ?');
+        $stmt->bind_param('sis', $to, $alertId, $from);
+        $stmt->execute();
+        $changed = $stmt->affected_rows > 0;
+        $stmt->close();
+        if ($changed) {
+            logActivity($conn, 'updated', 'emergency_alerts', 'Emergency alert ' . ($action === 'broadcast' ? 'broadcast to residents.' : 'marked resolved.'), $alertId);
+        }
+    }
+    header('Location: emergency.php?msg=' . ($action === 'broadcast' ? 'sent' : 'updated'));
+    exit;
+}
+
+$openAlerts = $conn->query("SELECT id, tracking_number, reported_by, category, description, status, created_at FROM emergency_alerts WHERE status IN ('Reported', 'Active') ORDER BY status = 'Active', created_at DESC");
+$counts = ['Reported' => 0, 'Active' => 0, 'Resolved' => 0];
+foreach ($conn->query('SELECT status, COUNT(*) FROM emergency_alerts GROUP BY status')->fetch_all() as [$status, $total]) {
+    $counts[$status] = (int)$total;
+}
+// created_at is stored in UTC; count from midnight Manila time.
+$todayStartUtc = (new DateTimeImmutable('today'))->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+$todayAlerts = (int)($conn->query("SELECT COUNT(*) FROM emergency_alerts WHERE created_at >= '$todayStartUtc'")->fetch_row()[0] ?? 0);
 $alertStyles = ['danger', 'warning', 'primary'];
 $alertRows = [];
 ?>
@@ -38,6 +63,11 @@ $alertRows = [];
 
         <?php renderTopbar('Emergency Alerts', 'Monitor and broadcast barangay emergency alerts.', 'compact', ['clock' => true]); ?>
 
+        <?php renderNotice([
+            'sent' => 'Emergency alert sent to all residents.',
+            'updated' => 'Emergency alert updated.',
+        ]); ?>
+
         <div class="row g-4">
 
             <div class="col-lg-3">
@@ -48,7 +78,7 @@ $alertRows = [];
 
                     <h4>Active Alerts</h4>
 
-                    <h2><?php echo $ongoingAlerts; ?></h2>
+                    <h2><?php echo $counts['Active']; ?></h2>
 
                 </div>
 
@@ -60,9 +90,9 @@ $alertRows = [];
 
                     <i class="fa-solid fa-hourglass-half"></i>
 
-                    <h4>Awaiting Response</h4>
+                    <h4>Reports to Review</h4>
 
-                    <h2><?php echo $pendingAlerts; ?></h2>
+                    <h2><?php echo $counts['Reported']; ?></h2>
 
                 </div>
 
@@ -76,7 +106,7 @@ $alertRows = [];
 
                     <h4>Resolved</h4>
 
-                    <h2><?php echo $resolvedAlerts; ?></h2>
+                    <h2><?php echo $counts['Resolved']; ?></h2>
 
                 </div>
 
@@ -88,7 +118,7 @@ $alertRows = [];
 
                     <i class="fa-solid fa-calendar-day"></i>
 
-                    <h4>Filed Today</h4>
+                    <h4>Today</h4>
 
                     <h2><?php echo $todayAlerts; ?></h2>
 
@@ -106,14 +136,7 @@ $alertRows = [];
 
                     <div class="card-header-custom">
 
-                        <h3>Active Emergency Reports</h3>
-
-                        <?php if (($_SESSION['role'] ?? '') === 'admin'): ?>
-                            <a href="emergency_report.php" class="btn btn-primary">
-                                <i class="fa-solid fa-plus"></i>
-                                New Report
-                            </a>
-                        <?php endif; ?>
+                        <h3>Emergency Reports &amp; Alerts</h3>
 
                     </div>
 
@@ -127,11 +150,13 @@ $alertRows = [];
 
                                 <th>Reported By</th>
 
-                                <th>Category</th>
+                                <th>Emergency</th>
 
-                                <th>Date Filed</th>
+                                <th>Status</th>
 
-                                <th>Action</th>
+                                <th>Date</th>
+
+                                <?php if ($isAdmin): ?><th>Action</th><?php endif; ?>
 
                             </tr>
 
@@ -139,35 +164,55 @@ $alertRows = [];
 
                         <tbody>
 
-                            <?php if ($activeAlerts->num_rows === 0): ?>
+                            <?php if ($openAlerts->num_rows === 0): ?>
 
                                 <tr>
-                                    <td colspan="5">No active emergency reports.</td>
+                                    <td colspan="<?php echo $isAdmin ? 6 : 5; ?>">No open emergency reports or alerts.</td>
                                 </tr>
 
                             <?php else: ?>
 
-                                <?php while ($alert = $activeAlerts->fetch_assoc()): ?>
+                                <?php while ($alert = $openAlerts->fetch_assoc()): ?>
 
-                                    <?php $alertRows[] = $alert; ?>
+                                    <?php if ($alert['status'] === 'Active') { $alertRows[] = $alert; } ?>
 
                                     <tr>
 
                                         <td><?php echo h($alert['tracking_number']); ?></td>
 
-                                        <td><?php echo h($alert['resident_name']); ?></td>
-
-                                        <td><?php echo h($alert['category']); ?></td>
-
-                                        <td><?php echo h($alert['date_filed']); ?></td>
+                                        <td><?php echo h($alert['reported_by']); ?></td>
 
                                         <td>
-                                            <?php if (($_SESSION['role'] ?? '') === 'admin'): ?>
-                                                <a href="complaint_form.php?id=<?php echo (int)$alert['id']; ?>" class="btn btn-sm btn-primary">View</a>
-                                            <?php else: ?>
-                                                <span class="text-muted">Read only</span>
-                                            <?php endif; ?>
+                                            <strong><?php echo h($alert['category']); ?></strong>
+                                            <div class="small text-muted"><?php echo h($alert['description']); ?></div>
                                         </td>
+
+                                        <td>
+                                            <span class="badge <?php echo $alert['status'] === 'Active' ? 'bg-danger' : 'bg-warning'; ?>">
+                                                <?php echo $alert['status'] === 'Active' ? 'Sent' : 'For Review'; ?>
+                                            </span>
+                                        </td>
+
+                                        <td class="text-nowrap"><?php echo h(formatDatabaseDateTime($alert['created_at'])); ?></td>
+
+                                        <?php if ($isAdmin): ?>
+                                            <td class="text-nowrap">
+                                                <form method="post" class="d-inline">
+                                                    <?php echo csrfField(); ?>
+                                                    <input type="hidden" name="id" value="<?php echo (int)$alert['id']; ?>">
+                                                    <?php if ($alert['status'] === 'Reported'): ?>
+                                                        <button type="submit" name="action" value="broadcast" class="btn btn-sm btn-danger" onclick="return confirm('Send this alert to all residents?');">
+                                                            <i class="fa-solid fa-bullhorn" aria-hidden="true"></i> Broadcast
+                                                        </button>
+                                                        <button type="submit" name="action" value="dismiss" class="btn btn-sm btn-outline-secondary">Dismiss</button>
+                                                    <?php else: ?>
+                                                        <button type="submit" name="action" value="resolve" class="btn btn-sm btn-success">
+                                                            <i class="fa-solid fa-check" aria-hidden="true"></i> Resolve
+                                                        </button>
+                                                    <?php endif; ?>
+                                                </form>
+                                            </td>
+                                        <?php endif; ?>
 
                                     </tr>
 
@@ -187,11 +232,11 @@ $alertRows = [];
 
                 <div class="content-card">
 
-                    <h3 class="mb-4">Alert Board</h3>
+                    <h3 class="mb-4">Alerts Sent to Residents</h3>
 
                     <?php if (empty($alertRows)): ?>
 
-                        <p class="text-muted">No active alerts to broadcast.</p>
+                        <p class="text-muted">No active alerts.</p>
 
                     <?php else: ?>
 
@@ -201,7 +246,7 @@ $alertRows = [];
 
                                 <h5><?php echo h($alert['category']); ?></h5>
 
-                                <p><?php echo h($alert['description'] ?: $alert['resident_name']); ?></p>
+                                <p><?php echo h($alert['description']); ?></p>
 
                             </div>
 
@@ -209,13 +254,12 @@ $alertRows = [];
 
                     <?php endif; ?>
 
-                    <button type="button" class="btn btn-danger w-100 mt-3 js-not-implemented">
-
-                        <i class="fa-solid fa-bullhorn"></i>
-
-                        Send Emergency Alert
-
-                    </button>
+                    <?php if ($isAdmin): ?>
+                        <a href="emergency_report.php" class="btn btn-danger w-100 mt-3">
+                            <i class="fa-solid fa-bullhorn"></i>
+                            Send Emergency Alert
+                        </a>
+                    <?php endif; ?>
 
                 </div>
 

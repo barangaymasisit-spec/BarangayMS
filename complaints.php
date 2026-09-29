@@ -38,7 +38,8 @@ $pendingComplaints = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE s
 $resolvedComplaints = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved'")->fetch_row()[0] ?? 0);
 $ongoingComplaints = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Ongoing'")->fetch_row()[0] ?? 0);
 
-$activeAlerts = $conn->query("SELECT tracking_number, category, resident_name, date_filed FROM complaints WHERE status = 'Ongoing' ORDER BY date_filed DESC LIMIT 5");
+$activeAlerts = $conn->query("SELECT tracking_number, category, description FROM emergency_alerts WHERE status = 'Active' ORDER BY created_at DESC LIMIT 5");
+$isAdmin = ($_SESSION['role'] ?? '') === 'admin';
 $alertStyles = ['danger', 'warning', 'primary'];
 ?>
 <!DOCTYPE html>
@@ -127,9 +128,9 @@ $alertStyles = ['danger', 'warning', 'primary'];
 
                 <div class="stat-card">
 
-                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <i class="fa-solid fa-spinner"></i>
 
-                    <h4>Active Alerts</h4>
+                    <h4>Ongoing</h4>
 
                     <h2><?php echo $ongoingComplaints; ?></h2>
 
@@ -275,13 +276,13 @@ $alertStyles = ['danger', 'warning', 'primary'];
 
                     <h3 class="mb-4">
 
-                        Active Alerts
+                        Active Emergency Alerts
 
                     </h3>
 
                     <?php if ($activeAlerts->num_rows === 0): ?>
 
-                        <p class="text-muted">No active alerts.</p>
+                        <p class="text-muted">No active emergency alerts.</p>
 
                     <?php else: $alertIndex = 0; ?>
 
@@ -297,9 +298,7 @@ $alertStyles = ['danger', 'warning', 'primary'];
 
                                 <p>
 
-                                    <?php echo h($alert['resident_name']); ?>
-                                    &bull;
-                                    <?php echo h($alert['tracking_number']); ?>
+                                    <?php echo h($alert['description']); ?>
 
                                 </p>
 
@@ -309,13 +308,15 @@ $alertStyles = ['danger', 'warning', 'primary'];
 
                     <?php endif; ?>
 
-                    <a href="emergency.php" class="btn btn-danger w-100 mt-3">
+                    <?php if ($isAdmin): ?>
+                        <a href="emergency_report.php" class="btn btn-danger w-100 mt-3">
 
-                        <i class="fa-solid fa-bullhorn"></i>
+                            <i class="fa-solid fa-bullhorn"></i>
 
-                        Send Emergency Alert
+                            Send Emergency Alert
 
-                    </a>
+                        </a>
+                    <?php endif; ?>
 
                 </div>
 

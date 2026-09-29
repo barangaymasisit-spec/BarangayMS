@@ -32,7 +32,7 @@ $stmt->execute();
 $complaints = $stmt->get_result();
 $stmt->close();
 
-$activeAlerts = $conn->query("SELECT category, description, date_filed FROM complaints WHERE status = 'Ongoing' ORDER BY date_filed DESC LIMIT 5");
+$activeAlerts = $conn->query("SELECT category, description, created_at FROM emergency_alerts WHERE status = 'Active' ORDER BY created_at DESC LIMIT 5");
 
 $stmt = $conn->prepare('SELECT COUNT(*) FROM appointments WHERE resident_id = ?');
 $stmt->bind_param('i', $residentId);
@@ -69,6 +69,7 @@ $certificates = $stmt->get_result();
             'certificate_created' => 'Your certificate request was submitted. Please wait for the barangay office to approve it.',
             'appointment_created' => 'Your appointment request was submitted.',
             'complaint_created' => 'Your complaint was submitted.',
+            'emergency_reported' => 'Your emergency report was sent to the barangay office.',
         ]); ?>
 
         <section class="cards" aria-label="My request totals">
@@ -135,7 +136,7 @@ $certificates = $stmt->get_result();
                         <div class="alert-box">
                             <strong><?php echo h($alert['category']); ?></strong>
                             <span><?php echo h($alert['description']); ?></span>
-                            <small><?php echo h($alert['date_filed']); ?></small>
+                            <small><?php echo h(formatDatabaseDateTime($alert['created_at'])); ?></small>
                         </div>
                     <?php endwhile; ?>
                 </div>
@@ -182,7 +183,7 @@ $certificates = $stmt->get_result();
         </section>
 
         <section class="content-section">
-            <div class="section-header"><div><h3>My Complaints</h3><p>Track your complaints and emergency reports.</p></div></div>
+            <div class="section-header"><div><h3>My Complaints</h3><p>Track your complaints.</p></div></div>
             <div class="table-responsive"><table><thead><tr><th>Tracking No.</th><th>Category</th><th>Date Filed</th><th>Status</th></tr></thead><tbody>
             <?php if ($complaints->num_rows === 0): ?><tr><td colspan="4">No complaints yet.</td></tr>
             <?php else: while ($complaint = $complaints->fetch_assoc()): ?><tr><td><?php echo h($complaint['tracking_number']); ?></td><td><?php echo h($complaint['category']); ?></td><td><?php echo h($complaint['date_filed']); ?></td><td><?php echo h($complaint['status']); ?></td></tr><?php endwhile; endif; ?>
