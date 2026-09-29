@@ -38,9 +38,8 @@ $pendingComplaints = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE s
 $resolvedComplaints = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Resolved'")->fetch_row()[0] ?? 0);
 $ongoingComplaints = (int)($conn->query("SELECT COUNT(*) FROM complaints WHERE status = 'Ongoing'")->fetch_row()[0] ?? 0);
 
-$activeAlerts = $conn->query("SELECT tracking_number, category, description FROM emergency_alerts WHERE status = 'Active' ORDER BY created_at DESC LIMIT 5");
-$isAdmin = ($_SESSION['role'] ?? '') === 'admin';
-$alertStyles = ['danger', 'warning', 'primary'];
+// Complaints that still need action; emergency alerts live on emergency.php.
+$complaintAlerts = $conn->query("SELECT tracking_number, category, resident_name, status FROM complaints WHERE status IN ('Pending', 'Ongoing') ORDER BY status = 'Pending' DESC, date_filed DESC, id DESC LIMIT 5");
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -276,19 +275,19 @@ $alertStyles = ['danger', 'warning', 'primary'];
 
                     <h3 class="mb-4">
 
-                        Active Emergency Alerts
+                        Complaint Alerts
 
                     </h3>
 
-                    <?php if ($activeAlerts->num_rows === 0): ?>
+                    <?php if ($complaintAlerts->num_rows === 0): ?>
 
-                        <p class="text-muted">No active emergency alerts.</p>
+                        <p class="text-muted">No complaints need attention.</p>
 
-                    <?php else: $alertIndex = 0; ?>
+                    <?php else: ?>
 
-                        <?php while ($alert = $activeAlerts->fetch_assoc()): ?>
+                        <?php while ($alert = $complaintAlerts->fetch_assoc()): ?>
 
-                            <div class="alert-box <?php echo $alertStyles[$alertIndex++ % count($alertStyles)]; ?>">
+                            <div class="alert-box <?php echo $alert['status'] === 'Pending' ? 'warning' : 'primary'; ?>">
 
                                 <h5>
 
@@ -298,7 +297,11 @@ $alertStyles = ['danger', 'warning', 'primary'];
 
                                 <p>
 
-                                    <?php echo h($alert['description']); ?>
+                                    <?php echo h($alert['resident_name']); ?>
+                                    &bull;
+                                    <?php echo h($alert['tracking_number']); ?>
+                                    &bull;
+                                    <?php echo h($alert['status']); ?>
 
                                 </p>
 
@@ -306,16 +309,6 @@ $alertStyles = ['danger', 'warning', 'primary'];
 
                         <?php endwhile; ?>
 
-                    <?php endif; ?>
-
-                    <?php if ($isAdmin): ?>
-                        <a href="emergency_report.php" class="btn btn-danger w-100 mt-3">
-
-                            <i class="fa-solid fa-bullhorn"></i>
-
-                            Send Emergency Alert
-
-                        </a>
                     <?php endif; ?>
 
                 </div>
