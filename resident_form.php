@@ -446,17 +446,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </div>
                                 <div>
                                     <label for="household_type">Household Type</label>
-                                    <input type="text" id="household_type" name="householdType" value="<?php echo $resident ? h($resident['household_type']) : ''; ?>">
+                                    <select id="household_type" name="householdType">
+                                        <option value="">Select</option>
+                                        <?php selectOptions(HOUSEHOLD_TYPES, $resident['household_type'] ?? ''); ?>
+                                    </select>
                                 </div>
                                 <div>
                                     <label for="income_bracket">Income Bracket</label>
                                     <select id="income_bracket" name="incomeBracket">
                                         <option value="">Select</option>
-                                        <option value="Below 5000" <?php echo $resident && $resident['income_bracket']==='Below 5000' ? 'selected' : ''; ?>>Below 5000</option>
-                                        <option value="5000-10000" <?php echo $resident && $resident['income_bracket']==='5000-10000' ? 'selected' : ''; ?>>5000-10000</option>
-                                        <option value="10000-20000" <?php echo $resident && $resident['income_bracket']==='10000-20000' ? 'selected' : ''; ?>>10000-20000</option>
-                                        <option value="20000-30000" <?php echo $resident && $resident['income_bracket']==='20000-30000' ? 'selected' : ''; ?>>20000-30000</option>
-                                        <option value="Above 30000" <?php echo $resident && $resident['income_bracket']==='Above 30000' ? 'selected' : ''; ?>>Above 30000</option>
+                                        <?php selectOptions(INCOME_BRACKETS, $resident['income_bracket'] ?? ''); ?>
                                     </select>
                                 </div>
                             </div>
@@ -622,6 +621,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </main>
 </div>
 <?php renderFooterScripts(); ?>
+<?php householdHeadLookup($conn, 'household_head', ['id' => 'household_id', 'members' => 'household_members', 'type' => 'household_type', 'income' => 'income_bracket']); ?>
 
 <script>
 // Auto-compute age from birthdate

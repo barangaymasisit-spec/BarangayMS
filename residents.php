@@ -402,9 +402,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
                                 <label for="householdType">Household Type</label>
                                 <select id="householdType" name="householdType">
                                     <option value="">Select Household Type</option>
-                                    <option value="Owned">Owned</option>
-                                    <option value="Rented">Rented</option>
-                                    <option value="Shared">Shared</option>
+                                    <?php selectOptions(HOUSEHOLD_TYPES); ?>
                                 </select>
                             </div>
 
@@ -412,11 +410,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
                                 <label for="incomeBracket">Income Bracket</label>
                                 <select id="incomeBracket" name="incomeBracket">
                                     <option value="">Select Income Bracket</option>
-                                    <option>Below &#8369;10,000</option>
-                                    <option>&#8369;10,000 - &#8369;20,000</option>
-                                    <option>&#8369;20,001 - &#8369;40,000</option>
-                                    <option>&#8369;40,001 - &#8369;60,000</option>
-                                    <option>Above &#8369;60,000</option>
+                                    <?php selectOptions(INCOME_BRACKETS); ?>
                                 </select>
                             </div>
 
@@ -883,6 +877,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
 </div>
 
 <?php renderFooterScripts(false); ?>
+<?php householdHeadLookup($conn, 'householdHead', ['id' => 'householdId', 'members' => 'householdMembers', 'type' => 'householdType', 'income' => 'incomeBracket']); ?>
 
 </body>
 

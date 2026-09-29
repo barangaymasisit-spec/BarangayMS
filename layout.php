@@ -183,6 +183,65 @@ function asset(string $file): string {
     return htmlspecialchars($file . '?v=' . $version, ENT_QUOTES, 'UTF-8');
 }
 
+const HOUSEHOLD_TYPES = ['Nuclear Family', 'Extended Family', 'Single Parent', 'Solo Dweller', 'Others'];
+const INCOME_BRACKETS = ['Below 10,000', '10,000 - 20,000', '20,001 - 30,000', '30,001 - 50,000', 'Above 50,000'];
+
+/**
+ * Prints <option>s for $options with $current selected. A saved value that is
+ * no longer in the list is kept as an extra option so editing never drops it.
+ */
+function selectOptions(array $options, string $current = ''): void {
+    if ($current !== '' && !in_array($current, $options, true)) {
+        $options[] = $current;
+    }
+    foreach ($options as $option) {
+        echo '<option' . ($option === $current ? ' selected' : '') . '>' . h($option) . '</option>';
+    }
+}
+
+/**
+ * Suggests known household heads while typing in $headInputId, and when one is
+ * picked fills the household fields in $fieldIds (id, members, type, income => input id).
+ */
+function householdHeadLookup(mysqli $conn, string $headInputId, array $fieldIds): void {
+    $heads = [];
+    $sql = "SELECT household_head, household_number, members_count, household_type, income_bracket FROM households WHERE household_head <> ''
+            UNION ALL
+            SELECT household_head, household_id, household_members, household_type, income_bracket FROM residents WHERE household_head <> '' AND household_id <> ''";
+    if ($result = $conn->query($sql)) {
+        while ($row = $result->fetch_row()) {
+            $heads[strtolower(trim($row[0]))] ??= $row;
+        }
+    }
+    echo '<datalist id="householdHeadList">';
+    foreach ($heads as [$name, $number, $members, $type, $income]) {
+        echo '<option value="' . h(trim($name)) . '" data-id="' . h((string)$number) . '" data-members="' . h((string)$members)
+            . '" data-type="' . h((string)$type) . '" data-income="' . h((string)$income) . '"></option>';
+    }
+    echo '</datalist>';
+    ?>
+<script>
+(function(){
+    const head = document.getElementById(<?php echo json_encode($headInputId); ?>);
+    const fields = <?php echo json_encode($fieldIds); ?>;
+    if (!head) return;
+    head.setAttribute('list', 'householdHeadList');
+    head.setAttribute('autocomplete', 'off');
+    head.addEventListener('input', function(){
+        const name = head.value.trim().toLowerCase();
+        const match = Array.from(document.querySelectorAll('#householdHeadList option'))
+            .find(o => o.value.toLowerCase() === name);
+        if (!match) return;
+        for (const [key, inputId] of Object.entries(fields)) {
+            const el = document.getElementById(inputId);
+            if (el && match.dataset[key]) el.value = match.dataset[key];
+        }
+    });
+})();
+</script>
+    <?php
+}
+
 function pageTitle(string $title): void {
     echo '<title>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . ' | Barangay Management System</title>';
 }

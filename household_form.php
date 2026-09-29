@@ -109,8 +109,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $showForm = $isNew || $isEdit;
 $pageTitle = $isNew ? 'Add Household' : ($isEdit ? 'Edit Household' : 'Household Details');
 $statusOptions = ['Active', 'Archived'];
-$typeOptions = ['Nuclear Family', 'Extended Family', 'Single Parent', 'Solo Dweller', 'Others'];
-$incomeOptions = ['Below 10,000', '10,000 - 20,000', '20,001 - 30,000', '30,001 - 50,000', 'Above 50,000'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -177,9 +175,7 @@ $incomeOptions = ['Below 10,000', '10,000 - 20,000', '20,001 - 30,000', '30,001 
                             <label for="household_type">Household Type</label>
                             <select id="household_type" name="household_type">
                                 <option value="">Select type</option>
-                                <?php foreach ($typeOptions as $option): ?>
-                                    <option<?php echo $values['household_type'] === $option ? ' selected' : ''; ?>><?php echo $option; ?></option>
-                                <?php endforeach; ?>
+                                <?php selectOptions(HOUSEHOLD_TYPES, $values['household_type']); ?>
                             </select>
                         </div>
 
@@ -187,9 +183,7 @@ $incomeOptions = ['Below 10,000', '10,000 - 20,000', '20,001 - 30,000', '30,001 
                             <label for="income_bracket">Monthly Income Bracket</label>
                             <select id="income_bracket" name="income_bracket">
                                 <option value="">Select bracket</option>
-                                <?php foreach ($incomeOptions as $option): ?>
-                                    <option<?php echo $values['income_bracket'] === $option ? ' selected' : ''; ?>><?php echo $option; ?></option>
-                                <?php endforeach; ?>
+                                <?php selectOptions(INCOME_BRACKETS, $values['income_bracket']); ?>
                             </select>
                         </div>
 
