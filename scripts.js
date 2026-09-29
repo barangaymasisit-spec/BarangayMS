@@ -144,6 +144,16 @@ document.addEventListener('DOMContentLoaded', function () {
                     throw new Error('Invalid form token response');
                 }
                 tokenInput.value = data.csrf_token;
+                // form.submit() drops the clicked button's name/value, so carry it over.
+                const submitter = event.submitter;
+                if (submitter && submitter.name && !form.querySelector('input[type="hidden"][data-submitter]')) {
+                    const carried = document.createElement('input');
+                    carried.type = 'hidden';
+                    carried.name = submitter.name;
+                    carried.value = submitter.value;
+                    carried.dataset.submitter = '1';
+                    form.appendChild(carried);
+                }
                 form.submit();
             } catch (error) {
                 form.dataset.csrfRefreshing = '0';
