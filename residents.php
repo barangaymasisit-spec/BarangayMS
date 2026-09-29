@@ -395,7 +395,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
 
                             <div>
                                 <label for="householdMembers">Household Members</label>
-                                <input type="number" id="householdMembers" name="householdMembers" min="1">
+                                <input type="number" id="householdMembers" name="householdMembers" min="1" readonly title="Filled in from the household you pick">
                             </div>
 
                             <div>

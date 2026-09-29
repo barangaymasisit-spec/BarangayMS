@@ -6,7 +6,7 @@ $household = null;
 $error = '';
 
 if ($id > 0) {
-    $stmt = $conn->prepare('SELECT * FROM households WHERE id = ?');
+    $stmt = $conn->prepare('SELECT households.*, ' . householdMembersSql('households.household_number') . ' AS members_count FROM households WHERE id = ?');
     $stmt->bind_param('i', $id);
     $stmt->execute();
     $household = $stmt->get_result()->fetch_assoc();
@@ -154,7 +154,8 @@ $statusOptions = ['Active', 'Archived'];
 
                         <div class="form-group">
                             <label for="members_count">Number of Members</label>
-                            <input type="number" id="members_count" name="members_count" min="0" value="<?php echo h($values['members_count']); ?>">
+                            <input type="number" id="members_count" value="<?php echo h($household['members_count'] ?? 0); ?>" readonly aria-describedby="members_count_help">
+                            <small id="members_count_help" class="text-muted">Counted from residents with this Household ID.</small>
                         </div>
 
                         <div class="form-group">

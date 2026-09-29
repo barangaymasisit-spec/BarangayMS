@@ -40,7 +40,7 @@ $totalPages = max(1, (int)ceil($filteredCount / $perPage));
 $page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
 
-$listSql = 'SELECT id, household_number, household_head, members_count, zone, status FROM households' . $whereSql . ' ORDER BY id DESC LIMIT ? OFFSET ?';
+$listSql = 'SELECT id, household_number, household_head, ' . householdMembersSql('households.household_number') . ' AS members_count, zone, status FROM households' . $whereSql . ' ORDER BY id DESC LIMIT ? OFFSET ?';
 $stmt = $conn->prepare($listSql);
 $listParams = $params;
 $listParams[] = $perPage;
@@ -52,7 +52,7 @@ $households = $stmt->get_result();
 $totalHouseholds = (int)($conn->query('SELECT COUNT(*) FROM households')->fetch_row()[0] ?? 0);
 $activeHouseholds = (int)($conn->query("SELECT COUNT(*) FROM households WHERE status = 'Active'")->fetch_row()[0] ?? 0);
 $archivedHouseholds = (int)($conn->query("SELECT COUNT(*) FROM households WHERE status = 'Archived'")->fetch_row()[0] ?? 0);
-$totalMembers = (int)($conn->query('SELECT COALESCE(SUM(members_count), 0) FROM households')->fetch_row()[0] ?? 0);
+$totalMembers = (int)($conn->query('SELECT COALESCE(SUM(' . householdMembersSql('households.household_number') . '), 0) FROM households')->fetch_row()[0] ?? 0);
 
 function householdPageUrl($page, $search, $status) {
     $query = ['page' => $page];

@@ -207,14 +207,22 @@ function selectOptions(array $options, string $current = ''): void {
 }
 
 /**
+ * SQL that counts a household's members: residents linked by Household ID,
+ * leaving out those who died or moved out. $householdIdExpr is trusted SQL, never user input.
+ */
+function householdMembersSql(string $householdIdExpr): string {
+    return "(SELECT COUNT(*) FROM residents hm WHERE hm.household_id = $householdIdExpr AND COALESCE(hm.resident_status, '') NOT IN ('Deceased', 'Moved Out'))";
+}
+
+/**
  * Suggests known household heads while typing in $headInputId, and when one is
  * picked fills the household fields in $fieldIds (id, members, type, income => input id).
  */
 function householdHeadLookup(mysqli $conn, string $headInputId, array $fieldIds): void {
     $heads = [];
-    $sql = "SELECT household_head, household_number, members_count, household_type, income_bracket FROM households WHERE household_head <> ''
+    $sql = "SELECT household_head, household_number, " . householdMembersSql('households.household_number') . ", household_type, income_bracket FROM households WHERE household_head <> ''
             UNION ALL
-            SELECT household_head, household_id, household_members, household_type, income_bracket FROM residents WHERE household_head <> '' AND household_id <> ''";
+            SELECT household_head, household_id, " . householdMembersSql('residents.household_id') . ", household_type, income_bracket FROM residents WHERE household_head <> '' AND household_id <> ''";
     if ($result = $conn->query($sql)) {
         while ($row = $result->fetch_row()) {
             $heads[strtolower(trim($row[0]))] ??= $row;
@@ -242,6 +250,12 @@ function householdHeadLookup(mysqli $conn, string $headInputId, array $fieldIds)
         for (const [key, inputId] of Object.entries(fields)) {
             const el = document.getElementById(inputId);
             if (el && match.dataset[key]) el.value = match.dataset[key];
+        }
+        // The count covers residents already saved in the household; add this one if they are joining it.
+        const idInput = document.getElementById(fields.id || '');
+        const membersInput = document.getElementById(fields.members || '');
+        if (idInput && membersInput && idInput.defaultValue.trim() !== match.dataset.id) {
+            membersInput.value = Number(match.dataset.members || 0) + 1;
         }
     });
 })();

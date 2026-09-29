@@ -4,12 +4,14 @@ $resident = null;
 $error = '';
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($id > 0) {
-    $stmt = $conn->prepare('SELECT * FROM residents WHERE id = ?');
+    $stmt = $conn->prepare('SELECT residents.*, ' . householdMembersSql('residents.household_id') . ' AS live_household_members FROM residents WHERE id = ?');
     $stmt->bind_param('i', $id);
     $stmt->execute();
     $resident = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 }
+
+$householdMembers = $resident && trim((string)$resident['household_id']) !== '' ? $resident['live_household_members'] : '';
 
 // Prepare generated resident number for new records
 $generatedResidentNumber = '';
@@ -442,7 +444,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </div>
                                 <div>
                                     <label for="household_members">Household Members</label>
-                                    <input type="number" id="household_members" name="householdMembers" value="<?php echo $resident ? h($resident['household_members']) : ''; ?>">
+                                    <input type="number" id="household_members" name="householdMembers" value="<?php echo h($householdMembers); ?>" readonly title="Filled in from the household you pick">
                                 </div>
                                 <div>
                                     <label for="household_type">Household Type</label>
