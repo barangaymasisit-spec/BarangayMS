@@ -23,7 +23,7 @@ if (!in_array($role, ['admin', 'staff', 'health_worker', 'security_force', 'resi
 }
 
 $allRolePages = [
-    'dashboard.php', 'residents.php', 'resident_form.php', 'household.php', 'officials.php', 'audit.php',
+    'dashboard.php', 'residents.php', 'resident_form.php', 'household.php', 'household_form.php', 'officials.php', 'audit.php',
     'certificates.php', 'certificate_form.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php',
     'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'emergency.php', 'emergency_report.php', 'settings.php', 'logout.php', 'resident_dashboard.php',
 ];
