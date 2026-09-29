@@ -669,6 +669,19 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             </div>
         </div>
 
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="content-card">
+                    <div class="card-header-custom"><h3><i class="fa-solid fa-user-shield"></i> Administrators</h3></div>
+                    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name</th><th>Username</th><th>Email</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+                        <?php if ($admins->num_rows === 0): ?><tr><td colspan="5">No administrator accounts found.</td></tr><?php else: ?>
+                            <?php while ($admin = $admins->fetch_assoc()): ?><tr><td><?php echo h(trim($admin['first_name'] . ' ' . $admin['last_name'])); ?></td><td><?php echo h($admin['username']); ?></td><td><?php echo h($admin['email']); ?></td><td><span class="badge <?php echo $admin['status'] === 'Active' ? 'bg-success' : 'bg-secondary'; ?>"><?php echo h($admin['status']); ?></span></td><td><a href="officials.php?edit_admin=<?php echo (int)$admin['id']; ?>#admin-form" class="btn btn-sm btn-outline-secondary">Edit</a><?php if ((int)$admin['id'] !== (int)($_SESSION['user_id'] ?? 0)): ?><form action="officials.php" method="post" class="d-inline" onsubmit="return confirm('Delete this administrator account?');"><?php echo csrfField(); ?><input type="hidden" name="form_type" value="delete_admin"><input type="hidden" name="admin_id" value="<?php echo (int)$admin['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger">Delete</button></form><?php endif; ?></td></tr><?php endwhile; ?>
+                        <?php endif; ?>
+                    </tbody></table></div>
+                </div>
+            </div>
+        </div>
+
         <div id="officials-list" class="row mt-4">
 
             <div class="col-12">
@@ -781,19 +794,6 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
             </div>
 
-        </div>
-
-        <div class="row mt-4">
-            <div class="col-12">
-                <div class="content-card">
-                    <div class="card-header-custom"><h3><i class="fa-solid fa-user-shield"></i> Administrators</h3></div>
-                    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name</th><th>Username</th><th>Email</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-                        <?php if ($admins->num_rows === 0): ?><tr><td colspan="5">No administrator accounts found.</td></tr><?php else: ?>
-                            <?php while ($admin = $admins->fetch_assoc()): ?><tr><td><?php echo h(trim($admin['first_name'] . ' ' . $admin['last_name'])); ?></td><td><?php echo h($admin['username']); ?></td><td><?php echo h($admin['email']); ?></td><td><span class="badge <?php echo $admin['status'] === 'Active' ? 'bg-success' : 'bg-secondary'; ?>"><?php echo h($admin['status']); ?></span></td><td><a href="officials.php?edit_admin=<?php echo (int)$admin['id']; ?>#admin-form" class="btn btn-sm btn-outline-secondary">Edit</a><?php if ((int)$admin['id'] !== (int)($_SESSION['user_id'] ?? 0)): ?><form action="officials.php" method="post" class="d-inline" onsubmit="return confirm('Delete this administrator account?');"><?php echo csrfField(); ?><input type="hidden" name="form_type" value="delete_admin"><input type="hidden" name="admin_id" value="<?php echo (int)$admin['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger">Delete</button></form><?php endif; ?></td></tr><?php endwhile; ?>
-                        <?php endif; ?>
-                    </tbody></table></div>
-                </div>
-            </div>
         </div>
 
         <div id="liveHealthWorkers" data-live-personnel>
