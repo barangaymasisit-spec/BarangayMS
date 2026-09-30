@@ -51,12 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($user['status'], ['Active', 'Unverified'], true)) {
                 $error = 'Invalid username or password.';
                 recordLoginAttempt($conn, $username, false);
-            } elseif (isUserLockedOut($conn, $userId)) {
-                $error = 'Invalid username or password.';
-                recordLoginAttempt($conn, $username, false);
             } elseif (!password_verify($password, $user['password_hash'])) {
                 $error = 'Invalid username or password.';
-                recordFailedLogin($conn, $userId);
                 recordLoginAttempt($conn, $username, false);
                 logActivity($conn, 'login_failed', 'users', 'Failed login attempt for username: ' . $username, $userId, $userId);
             } elseif (!in_array($user['role'], ['admin', 'staff', 'health_worker', 'security_force', 'resident'], true)) {
@@ -74,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['email'] = $user['email'];
                 $_SESSION['role'] = $user['role'];
                 $_SESSION['last_activity'] = time();
+                rememberPasswordFingerprint($user['password_hash']);
                 recordLoginAttempt($conn, $username, true);
                 if ($remember) {
                     setPersistentAuthCookie($user);

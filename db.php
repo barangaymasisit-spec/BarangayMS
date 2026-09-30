@@ -275,24 +275,48 @@ function ensureLoginAttemptsTable(mysqli $conn): void {
     );
 }
 
+/**
+ * The visitor's own IP. On Railway every request arrives from the proxy (100.64.0.0/10),
+ * which appends the real client to X-Forwarded-For; reading it from the right means a
+ * client-supplied fake entry further left is ignored. Anywhere else REMOTE_ADDR is used.
+ */
 function loginRequestIp(): string {
-    return (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $remote = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $long = ip2long($remote);
+    $fromRailwayProxy = $long !== false && ($long & 0xFFC00000) === (ip2long('100.64.0.0') & 0xFFC00000);
+    if ($fromRailwayProxy && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        foreach (array_reverse(explode(',', (string)$_SERVER['HTTP_X_FORWARDED_FOR'])) as $candidate) {
+            $candidate = trim($candidate);
+            if (filter_var($candidate, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                $candidateLong = ip2long($candidate);
+                if ($candidateLong === false || ($candidateLong & 0xFFC00000) !== (ip2long('100.64.0.0') & 0xFFC00000)) {
+                    return $candidate;
+                }
+            }
+        }
+    }
+    return $remote;
 }
 
 function loginIdentifierHash(string $value): string {
     return hash_hmac('sha256', strtolower(trim($value)), authCookieSecret());
 }
 
+/**
+ * Blocks only the visitor who keeps failing: 5 misses on one account, or 20 overall,
+ * from the same IP within 15 minutes. Someone else's wrong guesses never lock out
+ * the real owner of an account.
+ */
 function isLoginRateLimited(mysqli $conn, string $username): bool {
     ensureLoginAttemptsTable($conn);
     $ipHash = loginIdentifierHash(loginRequestIp());
     $usernameHash = loginIdentifierHash($username);
-    $stmt = $conn->prepare('SELECT COUNT(*) FROM login_attempts WHERE successful = 0 AND attempted_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE) AND (ip_hash = ? OR username_hash = ?)');
-    $stmt->bind_param('ss', $ipHash, $usernameHash);
+    $stmt = $conn->prepare('SELECT COUNT(*), COALESCE(SUM(username_hash = ?), 0) FROM login_attempts WHERE successful = 0 AND attempted_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE) AND ip_hash = ?');
+    $stmt->bind_param('ss', $usernameHash, $ipHash);
     $stmt->execute();
-    $failedAttempts = (int)$stmt->get_result()->fetch_row()[0];
+    [$fromIp, $forAccount] = array_map('intval', $stmt->get_result()->fetch_row());
     $stmt->close();
-    return $failedAttempts >= 20;
+    return $fromIp >= 20 || $forAccount >= 5;
 }
 
 function recordLoginAttempt(mysqli $conn, string $username, bool $successful): void {
@@ -504,46 +528,6 @@ function validatePasswordStrength(string $password): array {
         'valid' => empty($errors),
         'errors' => $errors,
     ];
-}
-
-function getUserSecurity(mysqli $conn, int $userId): ?array {
-    ensureUserSecurityTable($conn);
-    $stmt = $conn->prepare('SELECT user_id, failed_login_attempts, locked_until, last_login_at FROM user_security WHERE user_id = ? LIMIT 1');
-    $stmt->bind_param('i', $userId);
-    $stmt->execute();
-    $record = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    return $record ?: null;
-}
-
-function isUserLockedOut(mysqli $conn, int $userId): bool {
-    $record = getUserSecurity($conn, $userId);
-    if (!$record || empty($record['locked_until'])) {
-        return false;
-    }
-
-    $lockedUntil = new DateTime($record['locked_until'], new DateTimeZone(date_default_timezone_get()));
-    return $lockedUntil > new DateTime('now', new DateTimeZone(date_default_timezone_get()));
-}
-
-function recordFailedLogin(mysqli $conn, int $userId): void {
-    ensureUserSecurityTable($conn);
-    $record = getUserSecurity($conn, $userId) ?? ['failed_login_attempts' => 0, 'locked_until' => null];
-    $attempts = (int)($record['failed_login_attempts'] ?? 0) + 1;
-
-    if ($attempts >= 5) {
-        $lockUntil = (new DateTime('now'))->modify('+15 minutes')->format('Y-m-d H:i:s');
-        $stmt = $conn->prepare('INSERT INTO user_security (user_id, failed_login_attempts, locked_until) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE failed_login_attempts = VALUES(failed_login_attempts), locked_until = VALUES(locked_until)');
-        $stmt->bind_param('iis', $userId, $attempts, $lockUntil);
-        $stmt->execute();
-        $stmt->close();
-        return;
-    }
-
-    $stmt = $conn->prepare('INSERT INTO user_security (user_id, failed_login_attempts, locked_until) VALUES (?, ?, NULL) ON DUPLICATE KEY UPDATE failed_login_attempts = VALUES(failed_login_attempts), locked_until = NULL');
-    $stmt->bind_param('ii', $userId, $attempts);
-    $stmt->execute();
-    $stmt->close();
 }
 
 function clearFailedLogin(mysqli $conn, int $userId): void {

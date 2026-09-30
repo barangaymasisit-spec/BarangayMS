@@ -41,13 +41,13 @@ if ($isDemoSettings) {
     $settings = $conn->query('SELECT * FROM barangay_settings LIMIT 1')->fetch_assoc();
 }
 
-$adminResult = $conn->query("SELECT * FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1");
-if ($adminResult->num_rows === 0) {
-    $passwordHash = password_hash(bin2hex(random_bytes(12)), PASSWORD_DEFAULT);
-    $conn->query("INSERT INTO users (first_name, last_name, username, email, password_hash, role, status) VALUES ('Admin', 'User', 'admin', 'admin@example.com', '$passwordHash', 'admin', 'Active')");
-    $adminResult = $conn->query("SELECT * FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1");
-}
-$admin = $adminResult->fetch_assoc();
+// The account card edits the signed-in admin's own account (not whichever admin was created first).
+$stmt = $conn->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+$currentUserId = (int)$_SESSION['user_id'];
+$stmt->bind_param('i', $currentUserId);
+$stmt->execute();
+$admin = $stmt->get_result()->fetch_assoc();
+$stmt->close();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $formType = $_POST['form_type'] ?? '';
@@ -193,6 +193,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->bind_param('sssi', $adminName, $username, $passwordHash, $admin['id']);
                 $stmt->execute();
                 $stmt->close();
+                rememberPasswordFingerprint($passwordHash); // stay signed in here; other sessions end
+                $admin['password_hash'] = $passwordHash;
                 logActivity($conn, 'updated', 'users', 'Updated administrator account details.', (int)$admin['id']);
                 $success = 'Administrator account updated successfully.';
             }
@@ -221,7 +223,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $settings = $conn->query('SELECT * FROM barangay_settings LIMIT 1')->fetch_assoc();
-    $admin = $conn->query("SELECT * FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1")->fetch_assoc();
+    $stmt = $conn->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+    $stmt->bind_param('i', $currentUserId);
+    $stmt->execute();
+    $admin = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
 }
 
 $totalResidents = (int)($conn->query('SELECT COUNT(*) FROM residents')->fetch_row()[0] ?? 0);

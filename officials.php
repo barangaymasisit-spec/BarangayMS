@@ -100,6 +100,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'ad
         $officialError = 'Please provide valid administrator name, username, and email details.';
     } elseif (!in_array($status, ['Active', 'Inactive'], true)) {
         $officialError = 'Invalid administrator status.';
+    } elseif ($status === 'Inactive' && $adminId > 0 && $adminId === (int)($_SESSION['user_id'] ?? 0)) {
+        // The signed-in admin is always active, so this alone guarantees one active admin remains.
+        $officialError = 'You cannot deactivate the administrator account currently in use.';
     } elseif (($adminId === 0 || $password !== '') && !validatePasswordStrength($password)['valid']) {
         $officialError = implode(' ', validatePasswordStrength($password)['errors']);
     } else {
@@ -122,6 +125,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'ad
             }
             $stmt->execute();
             $stmt->close();
+            if ($password !== '' && $adminId === (int)($_SESSION['user_id'] ?? 0)) {
+                rememberPasswordFingerprint($passwordHash); // stay signed in here; other sessions end
+            }
             logActivity($conn, 'updated', 'users', 'Updated administrator account.', $adminId);
             header('Location: officials.php?saved=1');
             exit;

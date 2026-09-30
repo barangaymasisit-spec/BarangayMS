@@ -220,9 +220,22 @@ function restorePersistentAuthSession(mysqli $conn): void {
     $_SESSION['email'] = $user['email'];
     $_SESSION['role'] = $user['role'];
     $_SESSION['last_activity'] = time();
+    rememberPasswordFingerprint($user['password_hash']);
     if (empty($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
     }
+}
+
+/**
+ * Ties the session to the password it logged in with: once the password changes
+ * (reset or edit), every other session of that account is signed out.
+ */
+function passwordFingerprint(string $passwordHash): string {
+    return hash_hmac('sha256', $passwordHash, authCookieSecret());
+}
+
+function rememberPasswordFingerprint(string $passwordHash): void {
+    $_SESSION['password_fingerprint'] = passwordFingerprint($passwordHash);
 }
 
 /**
@@ -235,13 +248,18 @@ function enforceActiveAccount(mysqli $conn): void {
     }
 
     $userId = (int)$_SESSION['user_id'];
-    $stmt = $conn->prepare("SELECT role FROM users WHERE id = ? AND status = 'Active' LIMIT 1");
+    $stmt = $conn->prepare("SELECT role, password_hash FROM users WHERE id = ? AND status = 'Active' LIMIT 1");
     $stmt->bind_param('i', $userId);
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 
-    if (!$user) {
+    // Sessions from before this check existed adopt the current password once.
+    if ($user && !isset($_SESSION['password_fingerprint'])) {
+        rememberPasswordFingerprint($user['password_hash']);
+    }
+
+    if (!$user || !hash_equals((string)$_SESSION['password_fingerprint'], passwordFingerprint($user['password_hash']))) {
         clearPersistentAuthCookie();
         unset($_COOKIE['BARANGAY_AUTH']);
         $_SESSION = [];
