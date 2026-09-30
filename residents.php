@@ -637,8 +637,6 @@ $generatedResidentNumber = nextResidentNumber($conn);
 
                             <label><input type="checkbox" name="categories[]" value="4Ps Beneficiary"> 4Ps Beneficiary</label>
 
-                            <label><input type="checkbox" name="categories[]" value="Registered Voter"> Registered Voter</label>
-
                         </div>
 
                     </section>

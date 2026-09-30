@@ -173,6 +173,21 @@ function ensureUserAccountColumns(mysqli $conn): void {
     }
 }
 
+/**
+ * Voter status lives only in residents.voter_status. Older records ticked a
+ * "Registered Voter" category instead; move those over and drop the category.
+ */
+function migrateRegisteredVoterCategory(mysqli $conn): void {
+    try {
+        $conn->query("UPDATE residents
+            SET voter_status = 'Registered',
+                categories = NULLIF(TRIM(BOTH ',' FROM REPLACE(CONCAT(',', REPLACE(categories, ', ', ','), ','), ',Registered Voter,', ',')), '')
+            WHERE FIND_IN_SET('Registered Voter', REPLACE(categories, ', ', ','))");
+    } catch (mysqli_sql_exception) {
+        // residents table not installed yet
+    }
+}
+
 // Lowest free RES- number, so deleted numbers get reused before new ones.
 function nextResidentNumber(mysqli $conn): string {
     $used = "SELECT CAST(SUBSTRING(resident_number, 5) AS UNSIGNED) AS n FROM residents WHERE resident_number LIKE 'RES-%'";
@@ -795,5 +810,6 @@ function nextEmergencyTrackingNumber(mysqli $conn): string {
 ensureActivityLogsTable($conn);
 ensureEmergencyAlertsTable($conn);
 ensureUserAccountColumns($conn);
+migrateRegisteredVoterCategory($conn);
 expireOfficialTerms($conn);
 runScheduledBackup($conn);

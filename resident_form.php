@@ -565,7 +565,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <h3><i class="fa-solid fa-list-check"></i> Special Categories</h3>
                             <?php $selectedCategories = $resident ? array_map('trim', explode(',', (string)$resident['categories'])) : []; ?>
                             <div class="checkbox-grid">
-                                <?php foreach (['Senior Citizen', 'Solo Parent', 'PWD', 'Indigenous Person', 'Pregnant Woman', 'Lactating Mother', 'OFW Family', '4Ps Beneficiary', 'Registered Voter'] as $category): ?>
+                                <?php foreach (['Senior Citizen', 'Solo Parent', 'PWD', 'Indigenous Person', 'Pregnant Woman', 'Lactating Mother', 'OFW Family', '4Ps Beneficiary'] as $category): ?>
                                     <label><input type="checkbox" name="categories[]" value="<?php echo h($category); ?>" <?php echo in_array($category, $selectedCategories, true) ? 'checked' : ''; ?>> <?php echo h($category); ?></label>
                                 <?php endforeach; ?>
                             </div>
