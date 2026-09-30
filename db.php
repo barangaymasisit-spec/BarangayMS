@@ -666,14 +666,24 @@ function streamDatabaseBackup(mysqli $conn): void {
         echo "DROP TABLE IF EXISTS `$table`;\n$createSql;\n";
 
         $rows = $conn->query('SELECT * FROM `' . $table . '`', MYSQLI_USE_RESULT);
+        // Binary columns (photos, logos) go out as hex: raw bytes are not valid utf8mb4 text on restore.
+        $binary = array_map(
+            fn($field) => $field->charsetnr === 63 && in_array($field->type, [MYSQLI_TYPE_TINY_BLOB, MYSQLI_TYPE_MEDIUM_BLOB, MYSQLI_TYPE_LONG_BLOB, MYSQLI_TYPE_BLOB, MYSQLI_TYPE_VAR_STRING, MYSQLI_TYPE_STRING], true),
+            $rows->fetch_fields()
+        );
         $batch = [];
         while (true) {
             $row = $rows->fetch_row();
             if ($row) {
-                $batch[] = '(' . implode(',', array_map(
-                    fn($value) => $value === null ? 'NULL' : "'" . $conn->real_escape_string($value) . "'",
-                    $row
-                )) . ')';
+                $values = [];
+                foreach ($row as $i => $value) {
+                    $values[] = match (true) {
+                        $value === null => 'NULL',
+                        $binary[$i] => "X'" . bin2hex($value) . "'",
+                        default => "'" . $conn->real_escape_string($value) . "'",
+                    };
+                }
+                $batch[] = '(' . implode(',', $values) . ')';
             }
             if ($batch && (!$row || count($batch) === 200)) {
                 echo "INSERT INTO `$table` VALUES\n", implode(",\n", $batch), ";\n";
