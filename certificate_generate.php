@@ -640,7 +640,7 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
                 <h1><?php echo h(strtoupper($settings['barangay_name'] ?? 'BARANGAY')); ?></h1>
                 <?php if (!empty($settings['email'])): ?><p>Email: <?php echo h($settings['email']); ?></p><?php endif; ?>
             </div>
-            <img src="<?php echo h($seal); ?>" alt="Barangay Seal">
+            <img src="<?php echo h($rightLogo); ?>" alt="Municipal Logo">
         </header>
 
         <aside class="officials-column">
