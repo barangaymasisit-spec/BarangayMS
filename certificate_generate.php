@@ -88,10 +88,10 @@ foreach ($officials as $official) {
     }
 }
 
-// Get barangay logo
-$logoPath = !empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $settings['logo_path'])
-    ? $settings['logo_path']
-    : 'logo.png';
+// Logos and seal uploaded in Settings
+$leftLogo = brandingImageUrl('left_logo');
+$rightLogo = brandingImageUrl('right_logo');
+$seal = brandingImageUrl('seal');
 
 $validation = validateCertificatePrintable($cert, $resident ?: []);
 
@@ -630,9 +630,9 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
 
     <?php if ($isGoodMoral): ?>
     <div class="certificate-container good-moral-certificate">
-        <img class="certificate-watermark" src="seal.jpg" alt="" aria-hidden="true">
+        <img class="certificate-watermark" src="<?php echo h($seal); ?>" alt="" aria-hidden="true">
         <header class="good-moral-header">
-            <img src="seal.jpg" alt="Barangay Seal">
+            <img src="<?php echo h($seal); ?>" alt="Barangay Seal">
             <div>
                 <p>Republic of the Philippines</p>
                 <p>Province of <?php echo h($settings['province'] ?? ''); ?></p>
@@ -640,7 +640,7 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
                 <h1><?php echo h(strtoupper($settings['barangay_name'] ?? 'BARANGAY')); ?></h1>
                 <?php if (!empty($settings['email'])): ?><p>Email: <?php echo h($settings['email']); ?></p><?php endif; ?>
             </div>
-            <img src="<?php echo h($logoPath); ?>" alt="Barangay Logo">
+            <img src="<?php echo h($leftLogo); ?>" alt="Barangay Logo">
         </header>
 
         <aside class="officials-column">
@@ -683,11 +683,11 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
     </div>
     <?php else: ?>
     <div class="certificate-container">
-        <img class="certificate-watermark" src="seal.jpg" alt="" aria-hidden="true">
+        <img class="certificate-watermark" src="<?php echo h($seal); ?>" alt="" aria-hidden="true">
         <!-- Header -->
         <div class="certificate-header">
             <div class="logo-section">
-                <img src="<?php echo htmlspecialchars($logoPath, ENT_QUOTES, 'UTF-8'); ?>" alt="Barangay Logo">
+                <img src="<?php echo h($leftLogo); ?>" alt="Barangay Logo">
             </div>
             <div class="header-text">
                 <p>Republic of the Philippines</p>
@@ -696,7 +696,7 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
                 <h2><?php echo h($settings['barangay_name'] ?? 'Barangay'); ?></h2>
             </div>
             <div class="logo-section">
-                <img src="logosm.png?v=<?php echo h((string)filemtime(__DIR__ . '/logosm.png')); ?>" alt="Barangay Logo">
+                <img src="<?php echo h($rightLogo); ?>" alt="Barangay Logo">
             </div>
         </div>
 

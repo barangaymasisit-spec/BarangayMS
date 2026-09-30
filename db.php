@@ -227,18 +227,60 @@ function validateCertificatePrintable(array $cert, array $resident): array {
     ];
 }
 
-function barangayLogoPath(): string {
+// Images uploaded in Settings for the certificate header. name => [label, bundled default].
+const BRANDING_IMAGES = [
+    'left_logo' => ['Left Logo', 'logo.png'],
+    'right_logo' => ['Right Logo', 'logosm.png'],
+    'seal' => ['Official Seal', 'seal.jpg'],
+];
+
+// Stored in the database because Railway's disk is wiped on every deploy.
+function ensureBrandingImagesTable(mysqli $conn): void {
+    $conn->query(
+        'CREATE TABLE IF NOT EXISTS branding_images (
+            name VARCHAR(20) NOT NULL,
+            mime VARCHAR(50) NOT NULL,
+            data MEDIUMBLOB NOT NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+    );
+}
+
+/**
+ * URL for a branding image: the one uploaded in Settings, else the older file-based
+ * barangay logo (left logo only), else the bundled default. ?v= changes on each upload.
+ */
+function brandingImageUrl(string $name): string {
+    static $versions = null;
     $conn = $GLOBALS['conn'] ?? null;
-    if ($conn instanceof mysqli) {
-        $result = $conn->query('SELECT logo_path FROM barangay_settings LIMIT 1');
-        if ($result && $result->num_rows > 0) {
-            $settings = $result->fetch_assoc();
-            if (!empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $settings['logo_path'])) {
-                return $settings['logo_path'];
+    if ($versions === null) {
+        $versions = [];
+        if ($conn instanceof mysqli) {
+            try {
+                foreach ($conn->query('SELECT name, UNIX_TIMESTAMP(updated_at) FROM branding_images')->fetch_all() as [$imageName, $version]) {
+                    $versions[$imageName] = $version;
+                }
+            } catch (mysqli_sql_exception) {
+                // table created on the first upload
             }
         }
     }
-    return 'logo.png';
+    if (isset($versions[$name])) {
+        return 'branding_image.php?name=' . rawurlencode($name) . '&v=' . $versions[$name];
+    }
+    if ($name === 'left_logo' && $conn instanceof mysqli) {
+        $legacy = (string)($conn->query('SELECT logo_path FROM barangay_settings LIMIT 1')->fetch_row()[0] ?? '');
+        if ($legacy !== '' && file_exists(__DIR__ . '/' . $legacy)) {
+            return $legacy;
+        }
+    }
+    $default = BRANDING_IMAGES[$name][1];
+    return $default . '?v=' . filemtime(__DIR__ . '/' . $default);
+}
+
+function barangayLogoPath(): string {
+    return brandingImageUrl('left_logo');
 }
 
 function ensureActivityLogsTable(mysqli $conn): void {

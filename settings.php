@@ -144,31 +144,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         logActivity($conn, 'updated', 'barangay_settings', $changes ? implode('; ', $changes) : 'No barangay profile values changed.', (int)$settings['id']);
         $success = 'Barangay information updated successfully.';
 
-        // Optional logo upload
-        if (!empty($_FILES['barangay_logo']['name'])) {
-            $allowed = ['image/png' => 'png', 'image/jpeg' => 'jpg'];
-            $mimeType = mime_content_type($_FILES['barangay_logo']['tmp_name']);
-            if (!isset($allowed[$mimeType])) {
-                $error = 'The barangay logo must be a PNG or JPG image.';
-            } else {
-                $uploadsDir = __DIR__ . '/uploads';
-                if (!is_dir($uploadsDir)) {
-                    mkdir($uploadsDir, 0755, true);
-                }
-                // Extension comes from the detected type, never the uploaded name (a "logo.php" must not be saved as .php).
-                $fileName = 'logo_' . bin2hex(random_bytes(8)) . '.' . $allowed[$mimeType];
-                if (move_uploaded_file($_FILES['barangay_logo']['tmp_name'], $uploadsDir . '/' . $fileName)) {
-                    $logoPath = 'uploads/' . $fileName;
-                    $stmt = $conn->prepare('UPDATE barangay_settings SET logo_path = ? WHERE id = ?');
-                    $stmt->bind_param('si', $logoPath, $settings['id']);
-                    $stmt->execute();
-                    $stmt->close();
-                    logActivity($conn, 'updated', 'barangay_settings', 'Updated barangay logo.', (int)$settings['id']);
-                    $success = 'Barangay information and logo updated successfully.';
-                } else {
-                    $error = 'The logo could not be uploaded.';
-                }
+        // Optional certificate logos and seal
+        $updatedImages = [];
+        foreach (BRANDING_IMAGES as $imageName => [$imageLabel]) {
+            $upload = $_FILES[$imageName] ?? null;
+            if (!$upload || $upload['error'] === UPLOAD_ERR_NO_FILE) {
+                continue;
             }
+            $mimeType = $upload['error'] === UPLOAD_ERR_OK ? mime_content_type($upload['tmp_name']) : '';
+            if ($upload['error'] !== UPLOAD_ERR_OK || $upload['size'] > 2 * 1024 * 1024) {
+                $error = 'The ' . $imageLabel . ' could not be uploaded. Use an image of 2 MB or less.';
+            } elseif (!in_array($mimeType, ['image/png', 'image/jpeg'], true)) {
+                $error = 'The ' . $imageLabel . ' must be a PNG or JPG image.';
+            } else {
+                ensureBrandingImagesTable($conn);
+                $imageData = (string)file_get_contents($upload['tmp_name']);
+                $stmt = $conn->prepare('INSERT INTO branding_images (name, mime, data, updated_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE mime = VALUES(mime), data = VALUES(data), updated_at = NOW()');
+                $stmt->bind_param('sss', $imageName, $mimeType, $imageData);
+                $stmt->execute();
+                $stmt->close();
+                $updatedImages[] = $imageLabel;
+            }
+        }
+        if ($updatedImages) {
+            logActivity($conn, 'updated', 'barangay_settings', 'Updated ' . implode(', ', $updatedImages) . '.', (int)$settings['id']);
+            $success = 'Barangay information and ' . implode(', ', $updatedImages) . ' updated successfully.';
         }
     }
 
@@ -238,9 +238,6 @@ $totalBackups = (int)$totalBackups;
 $lastBackup = $lastBackupAt ? formatDatabaseDateTime($lastBackupAt, 'F d, Y h:i A') : 'No backup recorded';
 ensureDatabaseBackupsTable($conn);
 $savedBackups = $conn->query('SELECT id, backup_date, LENGTH(sql_dump) AS size_bytes FROM database_backups ORDER BY backup_date DESC')->fetch_all(MYSQLI_ASSOC);
-$logoSrc = !empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $settings['logo_path'])
-    ? $settings['logo_path']
-    : 'logo.png';
 
 ?>
 <!DOCTYPE html>
@@ -574,40 +571,40 @@ $logoSrc = !empty($settings['logo_path']) && file_exists(__DIR__ . '/' . $settin
 
                                 <i class="fa-solid fa-image"></i>
 
-                                Barangay Logo
+                                Certificate Logos &amp; Seal
 
                             </h3>
 
                         </div>
 
-                        <div class="row align-items-center">
+                        <p class="text-muted">These appear on every certificate. The left logo is also the system logo. PNG or JPG, up to 2 MB each.</p>
 
-                            <div class="col-md-4 text-center">
+                        <div class="row">
 
-                                <img src="<?php echo h($logoSrc); ?>"
-                                     alt="Barangay Logo"
-                                     class="img-fluid rounded shadow barangay-logo">
+                            <?php foreach (BRANDING_IMAGES as $imageName => [$imageLabel]): ?>
+                            <div class="col-md-4 mb-3 text-center">
 
-                            </div>
+                                <label for="<?php echo h($imageName); ?>" class="form-label d-block"><?php echo h($imageLabel); ?></label>
 
-                            <div class="col-md-8">
-
-                                <label
-                                    for="barangayLogo"
-                                    class="form-label">
-
-                                    Upload New Logo
-
-                                </label>
+                                <img src="<?php echo h(brandingImageUrl($imageName)); ?>"
+                                     id="<?php echo h($imageName); ?>Preview"
+                                     alt="<?php echo h($imageLabel); ?>"
+                                     class="img-fluid rounded shadow mb-2 barangay-logo">
 
                                 <input
                                     type="file"
-                                    id="barangayLogo"
-                                    name="barangay_logo"
-                                    class="form-control"
+                                    id="<?php echo h($imageName); ?>"
+                                    name="<?php echo h($imageName); ?>"
+                                    class="form-control branding-upload"
+                                    data-preview="<?php echo h($imageName); ?>Preview"
                                     accept=".png,.jpg,.jpeg">
 
-                                <div class="mt-4">
+                            </div>
+                            <?php endforeach; ?>
+
+                            <div class="col-12">
+
+                                <div class="mt-2">
 
                                     <button
                                         type="submit"

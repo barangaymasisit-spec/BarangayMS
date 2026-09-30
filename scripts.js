@@ -178,21 +178,20 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    const barangayLogoInput = document.getElementById('barangayLogo');
-    const barangayLogoPreview = document.querySelector('.barangay-logo');
-    if (barangayLogoInput && barangayLogoPreview) {
-        barangayLogoInput.addEventListener('change', function () {
+    document.querySelectorAll('input.branding-upload').forEach(function (input) {
+        const preview = document.getElementById(input.dataset.preview);
+        input.addEventListener('change', function () {
             const file = this.files && this.files[0];
-            if (!file) {
+            if (!file || !preview) {
                 return;
             }
             const previewUrl = URL.createObjectURL(file);
-            barangayLogoPreview.src = previewUrl;
-            barangayLogoPreview.onload = function () {
+            preview.src = previewUrl;
+            preview.onload = function () {
                 URL.revokeObjectURL(previewUrl);
             };
         });
-    }
+    });
 
     document.querySelectorAll('button.js-not-implemented, a.js-not-implemented').forEach(function (element) {
         element.addEventListener('click', function (event) {
