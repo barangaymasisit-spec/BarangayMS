@@ -875,7 +875,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
 </div>
 
 <?php renderFooterScripts(false); ?>
-<?php householdHeadLookup($conn, 'householdHead', ['id' => 'householdId', 'members' => 'householdMembers', 'type' => 'householdType', 'income' => 'incomeBracket']); ?>
+<?php householdHeadLookup($conn, 'householdHead', ['id' => 'householdId', 'members' => 'householdMembers', 'type' => 'householdType', 'income' => 'incomeBracket', 'status' => 'residentStatus']); ?>
 
 </body>
 

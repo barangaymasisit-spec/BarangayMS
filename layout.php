@@ -261,13 +261,18 @@ function householdHeadLookup(mysqli $conn, string $headInputId, array $fieldIds)
             const el = document.getElementById(inputId);
             if (el && match.dataset[key]) el.value = match.dataset[key];
         }
-        // The count covers residents already saved in the household; add this one if they are joining it.
+        // The count covers residents already saved in the household; add this one if they are joining it
+        // and still count as a member (the deceased and moved out do not).
         const idInput = document.getElementById(fields.id || '');
         const membersInput = document.getElementById(fields.members || '');
+        const statusInput = document.getElementById(fields.status || '');
+        const counts = !statusInput || !['Deceased', 'Moved Out'].includes(statusInput.value);
         if (idInput && membersInput && idInput.defaultValue.trim() !== match.dataset.id) {
-            membersInput.value = Number(match.dataset.members || 0) + 1;
+            membersInput.value = Number(match.dataset.members || 0) + (counts ? 1 : 0);
         }
     });
+    const status = document.getElementById(fields.status || '');
+    if (status) status.addEventListener('change', () => head.dispatchEvent(new Event('input')));
 })();
 </script>
     <?php

@@ -627,7 +627,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </main>
 </div>
 <?php renderFooterScripts(); ?>
-<?php householdHeadLookup($conn, 'household_head', ['id' => 'household_id', 'members' => 'household_members', 'type' => 'household_type', 'income' => 'income_bracket']); ?>
+<?php householdHeadLookup($conn, 'household_head', ['id' => 'household_id', 'members' => 'household_members', 'type' => 'household_type', 'income' => 'income_bracket', 'status' => 'resident_status']); ?>
 
 <script>
 // Auto-compute age from birthdate
