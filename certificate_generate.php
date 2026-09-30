@@ -632,7 +632,7 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
     <div class="certificate-container good-moral-certificate">
         <img class="certificate-watermark" src="<?php echo h($seal); ?>" alt="" aria-hidden="true">
         <header class="good-moral-header">
-            <img src="<?php echo h($seal); ?>" alt="Barangay Seal">
+            <img src="<?php echo h($leftLogo); ?>" alt="Barangay Logo">
             <div>
                 <p>Republic of the Philippines</p>
                 <p>Province of <?php echo h($settings['province'] ?? ''); ?></p>
@@ -640,7 +640,7 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
                 <h1><?php echo h(strtoupper($settings['barangay_name'] ?? 'BARANGAY')); ?></h1>
                 <?php if (!empty($settings['email'])): ?><p>Email: <?php echo h($settings['email']); ?></p><?php endif; ?>
             </div>
-            <img src="<?php echo h($leftLogo); ?>" alt="Barangay Logo">
+            <img src="<?php echo h($seal); ?>" alt="Barangay Seal">
         </header>
 
         <aside class="officials-column">
