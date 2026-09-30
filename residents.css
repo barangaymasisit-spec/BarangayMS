@@ -595,6 +595,12 @@ input[type="checkbox"]{
     margin-bottom:25px;
 }
 
+.notice-error{
+    background:#FDECEA;
+    border-color:#F5C6C2;
+    color:#C62828;
+}
+
 .sr-only{
     position:absolute;
     width:1px;

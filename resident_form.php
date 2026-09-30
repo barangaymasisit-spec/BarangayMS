@@ -109,6 +109,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data['date_moved_in'] = $data['date_moved_in'] !== '' ? $data['date_moved_in'] : null;
     $data['date_moved_out'] = $data['date_moved_out'] !== '' ? $data['date_moved_out'] : null;
 
+    // One record per person: the same full name (ignoring case and outer spaces) cannot be saved twice.
+    $dupCheck = $conn->prepare("SELECT resident_number FROM residents
+        WHERE LOWER(TRIM(first_name)) = LOWER(?) AND LOWER(TRIM(COALESCE(middle_name, ''))) = LOWER(?)
+          AND LOWER(TRIM(last_name)) = LOWER(?) AND LOWER(TRIM(COALESCE(suffix, ''))) = LOWER(?) AND id <> ? LIMIT 1");
+    $dupCheck->bind_param('ssssi', $data['first_name'], $data['middle_name'], $data['last_name'], $data['suffix'], $postId);
+    $dupCheck->execute();
+    $existingNumber = $dupCheck->get_result()->fetch_row()[0] ?? null;
+    $dupCheck->close();
+    if ($existingNumber !== null) {
+        $fullName = trim(preg_replace('/\s+/', ' ', "{$data['first_name']} {$data['middle_name']} {$data['last_name']} {$data['suffix']}"));
+        $error = "A resident named $fullName is already registered ($existingNumber).";
+    }
+
     // Handle photo upload
     $uploadPath = null;
     $photoFile = $_FILES['resident_photo'] ?? null;
@@ -163,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         logActivity($conn, 'updated', 'residents', 'Updated resident profile.', (int)$postId);
         header('Location: residents.php?msg=updated');
         exit;
-    } else {
+    } elseif ($error === '') {
         // Insert new resident
         $cols = array_keys($data);
         $placeholders = array_fill(0, count($cols), '?');
@@ -201,6 +214,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: residents.php?msg=created');
         exit;
     }
+
+    // Not saved: show the form again with what was typed.
+    $blank = array_fill_keys(array_column($conn->query('SELECT * FROM residents LIMIT 0')->fetch_fields(), 'name'), null);
+    $resident = array_merge($resident ?? $blank, $data, ['id' => $postId]);
 }
 ?>
 <!DOCTYPE html>
@@ -220,6 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php renderTopbar($resident ? 'Resident Details' : 'Add Resident', $resident ? 'View resident record' : 'Create a new resident', 'panel', ['clock' => true]); ?>
         <div class="content-card">
             <h3><?php echo $resident ? 'Resident Record' : 'New Resident'; ?></h3>
+            <?php if ($error !== ''): ?><div class="notice notice-error" role="alert"><?php echo h($error); ?></div><?php endif; ?>
             <form method="post" action="resident_form.php<?php echo $resident ? '?id=' . (int)$resident['id'] . '&edit=1' : ''; ?>" enctype="multipart/form-data">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="id" value="<?php echo $resident ? (int)$resident['id'] : 0; ?>">
