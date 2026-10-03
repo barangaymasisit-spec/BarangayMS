@@ -174,6 +174,8 @@ CREATE TABLE IF NOT EXISTS `households` (
 CREATE TABLE IF NOT EXISTS `certificates` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `resident_id` INT UNSIGNED DEFAULT NULL,
+  `requested_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `requester_relationship` VARCHAR(100) DEFAULT NULL,
   `certificate_type` VARCHAR(150) DEFAULT NULL,
   `status` VARCHAR(50) DEFAULT NULL,
   `request_date` DATE DEFAULT NULL,
@@ -183,7 +185,8 @@ CREATE TABLE IF NOT EXISTS `certificates` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_resident_id` (`resident_id`)
+  KEY `idx_resident_id` (`resident_id`),
+  KEY `idx_certificates_requested_by` (`requested_by_user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `complaints` (

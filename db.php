@@ -173,6 +173,22 @@ function ensureUserAccountColumns(mysqli $conn): void {
     }
 }
 
+function ensureCertificateRequesterColumns(mysqli $conn): void {
+    $columns = [];
+    foreach ($conn->query("SHOW COLUMNS FROM certificates WHERE Field IN ('requested_by_user_id', 'requester_relationship')")->fetch_all(MYSQLI_ASSOC) as $column) {
+        $columns[$column['Field']] = true;
+    }
+    if (!isset($columns['requested_by_user_id'])) {
+        $conn->query('ALTER TABLE certificates ADD COLUMN requested_by_user_id INT UNSIGNED NULL AFTER resident_id');
+    }
+    if (!isset($columns['requester_relationship'])) {
+        $conn->query('ALTER TABLE certificates ADD COLUMN requester_relationship VARCHAR(100) NULL AFTER requested_by_user_id');
+    }
+    if ($conn->query("SHOW INDEX FROM certificates WHERE Key_name = 'idx_certificates_requested_by'")->num_rows === 0) {
+        $conn->query('ALTER TABLE certificates ADD KEY idx_certificates_requested_by (requested_by_user_id)');
+    }
+}
+
 /**
  * Voter status lives only in residents.voter_status. Older records ticked a
  * "Registered Voter" category instead; move those over and drop the category.
@@ -695,51 +711,84 @@ const BACKUP_SKIP_TABLES = ['php_sessions', 'login_attempts', 'password_resets',
 const AUTO_BACKUP_HOUR = 17; // 5:00 PM Manila
 const AUTO_BACKUPS_KEPT = 7;
 
-function streamDatabaseBackup(mysqli $conn): void {
-    echo BACKUP_HEADER, "\n-- Created: ", date('Y-m-d H:i:s'), "\n\n";
-    echo "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\n\n";
-
-    $tables = $conn->query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")->fetch_all();
-    foreach ($tables as [$table]) {
-        if (in_array($table, BACKUP_SKIP_TABLES, true)) {
-            continue;
+function writeBackupChunk(mixed $output, string $chunk, ?HashContext $hash = null): void {
+    if ($hash !== null) {
+        hash_update($hash, $chunk);
+    }
+    $length = strlen($chunk);
+    for ($offset = 0; $offset < $length;) {
+        $written = fwrite($output, substr($chunk, $offset), $length - $offset);
+        if ($written === false || $written === 0) {
+            throw new RuntimeException('Could not write database backup data.');
         }
-        $createSql = $conn->query('SHOW CREATE TABLE `' . $table . '`')->fetch_row()[1];
-        echo "DROP TABLE IF EXISTS `$table`;\n$createSql;\n";
+        $offset += $written;
+    }
+}
 
-        $rows = $conn->query('SELECT * FROM `' . $table . '`', MYSQLI_USE_RESULT);
-        // Binary columns (photos, logos) go out as hex: raw bytes are not valid utf8mb4 text on restore.
-        $binary = array_map(
-            fn($field) => $field->charsetnr === 63 && in_array($field->type, [MYSQLI_TYPE_TINY_BLOB, MYSQLI_TYPE_MEDIUM_BLOB, MYSQLI_TYPE_LONG_BLOB, MYSQLI_TYPE_BLOB, MYSQLI_TYPE_VAR_STRING, MYSQLI_TYPE_STRING], true),
-            $rows->fetch_fields()
-        );
-        $batch = [];
-        while (true) {
-            $row = $rows->fetch_row();
-            if ($row) {
-                $values = [];
-                foreach ($row as $i => $value) {
-                    $values[] = match (true) {
-                        $value === null => 'NULL',
-                        $binary[$i] => "X'" . bin2hex($value) . "'",
-                        default => "'" . $conn->real_escape_string($value) . "'",
-                    };
-                }
-                $batch[] = '(' . implode(',', $values) . ')';
-            }
-            if ($batch && (!$row || count($batch) === 200)) {
-                echo "INSERT INTO `$table` VALUES\n", implode(",\n", $batch), ";\n";
-                $batch = [];
-            }
-            if (!$row) {
-                break;
-            }
+function streamDatabaseBackup(mysqli $conn, mixed $output = null, ?HashContext $hash = null): void {
+    $closeOutput = $output === null;
+    if ($closeOutput) {
+        $output = fopen('php://output', 'wb');
+        if ($output === false) {
+            throw new RuntimeException('Could not open backup output stream.');
         }
-        $rows->free();
-        echo "\n";
     }
 
-    echo "SET FOREIGN_KEY_CHECKS = 1;\n";
+    try {
+        writeBackupChunk($output, BACKUP_HEADER . "\n-- Created: " . date('Y-m-d H:i:s') . "\n\n");
+        writeBackupChunk($output, "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\n\n", $hash);
+
+        $tables = $conn->query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")->fetch_all();
+        foreach ($tables as [$table]) {
+            if (in_array($table, BACKUP_SKIP_TABLES, true)) {
+                continue;
+            }
+            $tableHash = $table === 'activity_logs' ? null : $hash;
+            $createSql = $conn->query('SHOW CREATE TABLE `' . $table . '`')->fetch_row()[1];
+            writeBackupChunk($output, "DROP TABLE IF EXISTS `$table`;\n$createSql;\n", $tableHash);
+
+            $rows = $conn->query('SELECT * FROM `' . $table . '`', MYSQLI_USE_RESULT);
+            // Binary columns are hex-encoded in small pieces to avoid a second full-size BLOB allocation.
+            $binary = array_map(
+                fn($field) => $field->charsetnr === 63 && in_array($field->type, [MYSQLI_TYPE_TINY_BLOB, MYSQLI_TYPE_MEDIUM_BLOB, MYSQLI_TYPE_LONG_BLOB, MYSQLI_TYPE_BLOB, MYSQLI_TYPE_VAR_STRING, MYSQLI_TYPE_STRING], true),
+                $rows->fetch_fields()
+            );
+            $hasRows = false;
+            while (($row = $rows->fetch_row()) !== null) {
+                writeBackupChunk($output, $hasRows ? ",\n(" : "INSERT INTO `$table` VALUES\n(", $tableHash);
+                foreach ($row as $index => $value) {
+                    if ($index > 0) {
+                        writeBackupChunk($output, ',', $tableHash);
+                    }
+                    if ($value === null) {
+                        writeBackupChunk($output, 'NULL', $tableHash);
+                    } elseif ($binary[$index]) {
+                        writeBackupChunk($output, "X'", $tableHash);
+                        $valueLength = strlen($value);
+                        for ($offset = 0; $offset < $valueLength; $offset += 8192) {
+                            writeBackupChunk($output, bin2hex(substr($value, $offset, 8192)), $tableHash);
+                        }
+                        writeBackupChunk($output, "'", $tableHash);
+                    } else {
+                        writeBackupChunk($output, "'" . $conn->real_escape_string($value) . "'", $tableHash);
+                    }
+                }
+                writeBackupChunk($output, ')', $tableHash);
+                $hasRows = true;
+            }
+            if ($hasRows) {
+                writeBackupChunk($output, ";\n", $tableHash);
+            }
+            $rows->free();
+            writeBackupChunk($output, "\n", $tableHash);
+        }
+
+        writeBackupChunk($output, "SET FOREIGN_KEY_CHECKS = 1;\n", $hash);
+    } finally {
+        if ($closeOutput && is_resource($output)) {
+            fclose($output);
+        }
+    }
 }
 
 function restoreDatabaseBackup(mysqli $conn, string $sql): void {
@@ -767,50 +816,77 @@ function ensureDatabaseBackupsTable(mysqli $conn): void {
             UNIQUE KEY uniq_database_backups_date (backup_date)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
     );
+    $hashColumn = $conn->query("SHOW COLUMNS FROM database_backups LIKE 'content_hash'");
+    if ($hashColumn->num_rows === 0) {
+        $conn->query('ALTER TABLE database_backups ADD COLUMN content_hash CHAR(64) NULL AFTER backup_date');
+    }
 }
 
-/**
- * Runs on every request (including the 5-second sync poll), so the day's backup
- * is taken by the first request at or after 5:00 PM Manila time.
- * ponytail: no request after 5 PM (nobody logged in) = no backup that day; a Railway cron service fixes that if it matters.
- */
-function runScheduledBackup(mysqli $conn): void {
+/** Create a dated backup at 5 PM Manila time only when database content changed. */
+function runScheduledBackup(mysqli $conn): bool {
     if ((int)date('G') < AUTO_BACKUP_HOUR) {
-        return;
+        return true;
     }
     $today = date('Y-m-d');
     try {
         ensureDatabaseBackupsTable($conn);
         $exists = $conn->query("SELECT 1 FROM database_backups WHERE backup_date = '$today' LIMIT 1");
         if ($exists->num_rows > 0 || (int)$conn->query("SELECT GET_LOCK('bms_auto_backup', 0)")->fetch_row()[0] !== 1) {
-            return;
+            return true;
         }
         try {
             // Another request may have finished the backup while this one waited for the lock.
             if ($conn->query("SELECT 1 FROM database_backups WHERE backup_date = '$today' LIMIT 1")->num_rows > 0) {
-                return;
+                return true;
             }
-            ob_start();
+            $dump = fopen('php://temp/maxmemory:2097152', 'w+b');
+            if ($dump === false) {
+                throw new RuntimeException('Could not open temporary backup stream.');
+            }
             try {
-                streamDatabaseBackup($conn);
-            } finally {
-                $dump = ob_get_clean();
-            }
+                $hash = hash_init('sha256');
+                streamDatabaseBackup($conn, $dump, $hash);
+                $contentHash = hash_final($hash);
+                $lastBackup = $conn->query('SELECT content_hash FROM database_backups ORDER BY backup_date DESC, id DESC LIMIT 1')->fetch_assoc();
+                $lastHash = (string)($lastBackup['content_hash'] ?? '');
+                if ($lastHash !== '' && hash_equals($lastHash, $contentHash)) {
+                    return true;
+                }
+                rewind($dump);
 
-            $stmt = $conn->prepare('INSERT INTO database_backups (backup_date, sql_dump) VALUES (?, ?)');
-            $stmt->bind_param('ss', $today, $dump);
-            $stmt->execute();
-            $backupId = (int)$stmt->insert_id;
-            $stmt->close();
+                $stmt = $conn->prepare('INSERT INTO database_backups (backup_date, content_hash, sql_dump) VALUES (?, ?, ?)');
+                $dumpPlaceholder = '';
+                $stmt->bind_param('ssb', $today, $contentHash, $dumpPlaceholder);
+                try {
+                    while (!feof($dump)) {
+                        $chunk = fread($dump, 1048576);
+                        if ($chunk === false) {
+                            throw new RuntimeException('Could not read temporary backup stream.');
+                        }
+                        if ($chunk === '') {
+                            break;
+                        }
+                        if (!$stmt->send_long_data(2, $chunk)) {
+                            throw new RuntimeException('Could not send backup data to the database.');
+                        }
+                    }
+                    $stmt->execute();
+                    $backupId = (int)$stmt->insert_id;
+                } finally {
+                    $stmt->close();
+                }
+            } finally {
+                fclose($dump);
+            }
 
             $conn->query('DELETE FROM database_backups WHERE id NOT IN (SELECT id FROM (SELECT id FROM database_backups ORDER BY backup_date DESC LIMIT ' . AUTO_BACKUPS_KEPT . ') AS kept)');
-            logActivity($conn, 'backup', 'database', 'Automatic 5:00 PM database backup.', $backupId, 0);
         } finally {
             $conn->query("SELECT RELEASE_LOCK('bms_auto_backup')");
         }
+        return true;
     } catch (Throwable $e) {
-        // A failed backup must never break the page the user is on.
         error_log('Automatic database backup failed: ' . $e->getMessage());
+        return false;
     }
 }
 
@@ -862,6 +938,7 @@ function nextEmergencyTrackingNumber(mysqli $conn): string {
 ensureActivityLogsTable($conn);
 ensureEmergencyAlertsTable($conn);
 ensureUserAccountColumns($conn);
+ensureCertificateRequesterColumns($conn);
 migrateRegisteredVoterCategory($conn);
 expireOfficialTerms($conn);
-runScheduledBackup($conn);
+// Scheduled backups run through backup.php, not during web requests.

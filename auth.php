@@ -145,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <?php if (isset($_GET['registered'])): ?>
             <div class="success-message" role="status">
-                Almost done! We sent a confirmation link to your email. Open it to activate your account, then log in.
+                Your account has been created. You may now log in.
             </div>
         <?php endif; ?>
 

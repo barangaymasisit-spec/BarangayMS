@@ -46,8 +46,9 @@ $stmt->execute();
 $complaintCount = (int)$stmt->get_result()->fetch_row()[0];
 $stmt->close();
 
-$stmt = $conn->prepare('SELECT id, certificate_type, status, request_date FROM certificates WHERE resident_id = ? ORDER BY id DESC LIMIT 5');
-$stmt->bind_param('i', $residentId);
+$currentUserId = (int)$_SESSION['user_id'];
+$stmt = $conn->prepare('SELECT c.id, c.resident_id, c.certificate_type, c.status, c.request_date, r.first_name AS recipient_first_name, r.last_name AS recipient_last_name FROM certificates c LEFT JOIN residents r ON c.resident_id = r.id WHERE c.resident_id = ? OR c.requested_by_user_id = ? ORDER BY c.id DESC LIMIT 5');
+$stmt->bind_param('ii', $residentId, $currentUserId);
 $stmt->execute();
 $certificates = $stmt->get_result();
 ?>
@@ -153,16 +154,17 @@ $certificates = $stmt->get_result();
             <div class="table-responsive">
                 <table>
                     <thead>
-                        <tr><th>Tracking No.</th><th>Certificate</th><th>Request Date</th><th>Status</th></tr>
+                        <tr><th>Tracking No.</th><th>For</th><th>Certificate</th><th>Request Date</th><th>Status</th></tr>
                     </thead>
                     <tbody>
                     <?php if ($certificates->num_rows === 0): ?>
-                        <tr><td colspan="4">No certificate requests yet.</td></tr>
+                        <tr><td colspan="5">No certificate requests yet.</td></tr>
                     <?php else: ?>
                         <?php $statusLabels = ['Approved' => 'Ready for pickup', 'Released' => 'Claimed']; ?>
                         <?php while ($certificate = $certificates->fetch_assoc()): ?>
                             <tr>
                                 <td><?php echo h(certificateTrackingNumber((int)$certificate['id'], $certificate['request_date'])); ?></td>
+                                <td><?php echo h(trim(($certificate['recipient_first_name'] ?? '') . ' ' . ($certificate['recipient_last_name'] ?? ''))); ?></td>
                                 <td><?php echo h($certificate['certificate_type']); ?></td>
                                 <td><?php echo h($certificate['request_date']); ?></td>
                                 <td><?php echo h($statusLabels[$certificate['status']] ?? $certificate['status']); ?></td>

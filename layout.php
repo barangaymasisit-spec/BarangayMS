@@ -136,8 +136,9 @@ function notificationItems(mysqli $conn): array {
         while ($row = $alerts->fetch_assoc()) {
             $items[] = ['icon' => 'fa-triangle-exclamation', 'text' => 'Emergency alert: ' . $row['category'], 'detail' => $row['description'], 'href' => 'resident_dashboard.php'];
         }
-        $stmt = $conn->prepare("SELECT certificate_type, status FROM certificates WHERE resident_id = ? AND status IN ('Approved', 'Released') ORDER BY updated_at DESC LIMIT 5");
-        $stmt->bind_param('i', $residentId);
+        $userId = (int)($_SESSION['user_id'] ?? 0);
+        $stmt = $conn->prepare("SELECT certificate_type, status FROM certificates WHERE (resident_id = ? OR requested_by_user_id = ?) AND status IN ('Approved', 'Released') ORDER BY updated_at DESC LIMIT 5");
+        $stmt->bind_param('ii', $residentId, $userId);
         $stmt->execute();
         $result = $stmt->get_result();
         while ($row = $result->fetch_assoc()) {

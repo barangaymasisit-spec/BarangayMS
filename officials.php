@@ -292,6 +292,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
     }
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'official_account' && $officialError !== '') {
+    $editOfficialId = (int)($_POST['official_id'] ?? 0);
+    $editOfficial = [
+        'id' => $editOfficialId,
+        'first_name' => $_POST['first_name'] ?? '',
+        'last_name' => $_POST['last_name'] ?? '',
+        'username' => $_POST['username'] ?? '',
+        'email' => $_POST['email'] ?? '',
+        'role' => $_POST['role'] ?? 'staff',
+        'status' => $_POST['status'] ?? 'Active',
+        'term' => $_POST['term'] ?? '',
+        'term_start' => $_POST['term_start'] ?? '',
+        'term_end' => $_POST['term_end'] ?? '',
+        'position' => $_POST['position'] ?? '',
+    ];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'delete_official') {
     $officialId = (int)($_POST['official_id'] ?? 0);
     if ($officialId === (int)($_SESSION['user_id'] ?? 0)) {

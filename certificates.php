@@ -30,10 +30,12 @@ $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
 // Export: CSV of every request matching the current filters (not just this page).
 if (($_GET['export'] ?? '') === 'csv') {
-    $stmt = $conn->prepare('SELECT c.id, COALESCE(CONCAT(r.first_name, " ", r.last_name), "Unknown") AS resident_name,
-                                   c.certificate_type, c.purpose, c.request_date, c.status, c.approved_date, c.remarks
-                            FROM certificates c
-                            LEFT JOIN residents r ON c.resident_id = r.id' . $whereSql . ' ORDER BY c.id DESC');
+        $stmt = $conn->prepare('SELECT c.id, COALESCE(CONCAT(r.first_name, " ", r.last_name), "Unknown") AS resident_name,
+                        COALESCE(CONCAT(u.first_name, " ", u.last_name), "—") AS requested_by, c.requester_relationship,
+                        c.certificate_type, c.purpose, c.request_date, c.status, c.approved_date, c.remarks
+                    FROM certificates c
+                    LEFT JOIN residents r ON c.resident_id = r.id
+                    LEFT JOIN users u ON c.requested_by_user_id = u.id' . $whereSql . ' ORDER BY c.id DESC');
     if ($params) {
         $stmt->bind_param($types, ...$params);
     }
@@ -44,7 +46,7 @@ if (($_GET['export'] ?? '') === 'csv') {
     header('Content-Disposition: attachment; filename="certificate_requests_' . date('Y-m-d') . '.csv"');
     $out = fopen('php://output', 'w');
     fwrite($out, "\xEF\xBB\xBF"); // BOM so Excel reads UTF-8 names (ñ) correctly
-    fputcsv($out, ['Reference No.', 'Resident', 'Certificate', 'Purpose', 'Request Date', 'Status', 'Approved / Released Date', 'Remarks']);
+    fputcsv($out, ['Reference No.', 'Resident', 'Requested By', 'Requester Relationship', 'Certificate', 'Purpose', 'Request Date', 'Status', 'Approved / Released Date', 'Remarks']);
     while ($row = $result->fetch_assoc()) {
         $row['id'] = str_pad((string)$row['id'], 6, '0', STR_PAD_LEFT);
         // Stop Excel from running cells that start with = + - @ as formulas.
@@ -72,9 +74,12 @@ $totalPages = max(1, (int)ceil($filteredCount / $perPage));
 $page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
 
-$listSql = 'SELECT c.id, c.certificate_type, c.status, c.request_date, c.purpose, COALESCE(CONCAT(r.first_name, " ", r.last_name), "Unknown") AS resident_name
+$listSql = 'SELECT c.id, c.certificate_type, c.status, c.request_date, c.purpose, c.requester_relationship,
+                   COALESCE(CONCAT(r.first_name, " ", r.last_name), "Unknown") AS resident_name,
+                   COALESCE(CONCAT(u.first_name, " ", u.last_name), "—") AS requested_by
             FROM certificates c
-            LEFT JOIN residents r ON c.resident_id = r.id'
+            LEFT JOIN residents r ON c.resident_id = r.id
+            LEFT JOIN users u ON c.requested_by_user_id = u.id'
             . $whereSql . ' ORDER BY c.id DESC LIMIT ? OFFSET ?';
 $stmt = $conn->prepare($listSql);
 $listParams = $params;
@@ -404,6 +409,8 @@ $activeFilters = [
                             <th scope="col">Reference No.</th>
 
                             <th scope="col">Resident</th>
+                            <th scope="col">Requested By</th>
+                            <th scope="col">Relationship</th>
 
                             <th scope="col">Certificate</th>
 
@@ -425,7 +432,7 @@ $activeFilters = [
 
                             <tr>
 
-                                <td colspan="8">
+                                <td colspan="10">
 
                                     <div class="empty-state">
 
@@ -479,6 +486,10 @@ $activeFilters = [
                                     <td><?php echo h(str_pad((string)$row['id'], 6, '0', STR_PAD_LEFT)); ?></td>
 
                                     <td><?php echo h($row['resident_name']); ?></td>
+
+                                    <td><?php echo h($row['requested_by']); ?></td>
+
+                                    <td><?php echo h($row['requester_relationship'] ?: 'Self / Staff'); ?></td>
 
                                     <td><?php echo h($row['certificate_type']); ?></td>
 

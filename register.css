@@ -137,6 +137,42 @@ body{
     font-weight: bold;
 }
 
+.success-message{
+    background: #e8f5e9;
+    border: 2px solid #2e7d32;
+    color: #1b5e20;
+    padding: 14px 18px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.resident-number-help{
+    margin: -8px 0 18px;
+}
+
+.resident-number-help p{
+    margin-top: 7px;
+    color: #555;
+    font-size: 13px;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.resident-number-help .secondary-button{
+    padding: 11px 14px;
+    border: 1px solid #0B4A9E;
+    background: #eef4fc;
+    color: #0B4A9E;
+    font-size: 14px;
+}
+
+.resident-number-help .secondary-button:hover{
+    background: #dce9fa;
+    transform: none;
+}
+
 .input-box{
     position: relative;
     margin-bottom: 18px;
@@ -178,7 +214,6 @@ body{
     color: #0B4A9E;
 }
 
-.input-box .fa-eye,
 .input-box .fa-chevron-down{
     position: absolute;
     right: 15px;
@@ -186,6 +221,37 @@ body{
     transform: translateY(-50%);
     color: #666;
     cursor: pointer;
+}
+
+.input-box .password-toggle{
+    position:absolute;
+    right:8px;
+    top:50%;
+    z-index:1;
+    display:grid;
+    width:38px;
+    height:38px;
+    place-items:center;
+    padding:0;
+    border:0;
+    border-radius:50%;
+    background:transparent;
+    color:#526277;
+    font-size:15px;
+    transform:translateY(-50%);
+}
+
+.input-box .password-toggle:hover,
+.input-box .password-toggle:focus-visible{
+    background:#eef4fc;
+    color:#0B4A9E;
+    transform:translateY(-50%);
+}
+
+.input-box .password-toggle i{
+    position:static;
+    color:inherit;
+    cursor:inherit;
 }
 
 .terms{

@@ -8,6 +8,7 @@ if (isset($_SESSION['user_id'])) {
 }
 
 $error = '';
+$notice = '';
 $registrationAllowed = true;
 $settingsResult = $conn->query('SELECT allow_registration FROM barangay_settings LIMIT 1');
 if ($settingsResult && ($registrationSettings = $settingsResult->fetch_assoc())) {
@@ -37,6 +38,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password          = $_POST['password'] ?? '';
     $confirmPassword   = $_POST['confirm_password'] ?? '';
 
+    if (($_POST['action'] ?? '') === 'get_resident_number') {
+        if (!$registrationAllowed) {
+            $error = 'Resident account registration is currently disabled.';
+        } elseif ($old['first_name'] === '' || $old['last_name'] === '' || $old['email'] === '') {
+            $error = 'Enter your first name, last name, and email address first.';
+        } elseif (!filter_var($old['email'], FILTER_VALIDATE_EMAIL)) {
+            $error = 'Please enter a valid email address.';
+        } else {
+            $requestKey = 'resident-number:' . strtolower($old['email']);
+            if (!isLoginRateLimited($conn, $requestKey)) {
+                $stmt = $conn->prepare('SELECT resident_number, email FROM residents WHERE first_name = ? AND last_name = ? AND email = ? ORDER BY id LIMIT 2');
+                $stmt->bind_param('sss', $old['first_name'], $old['last_name'], $old['email']);
+                $stmt->execute();
+                $residentMatches = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                $stmt->close();
+
+                if (count($residentMatches) === 1) {
+                    $settings = $conn->query('SELECT email FROM barangay_settings LIMIT 1')->fetch_assoc() ?: [];
+                    $from = trim((string)($settings['email'] ?? '')) ?: trim((string)(getenv('MAIL_FROM') ?: ''));
+                    $body = "Your resident number is: " . $residentMatches[0]['resident_number']
+                        . "\n\nEnter this number on the Barangay Management System registration form. Keep it private. If you did not request this message, ignore it or contact the barangay office.\n";
+                    if ($from !== '') {
+                        sendSmtpEmail($residentMatches[0]['email'], 'Your Barangay Resident Number', $body, $from);
+                    }
+                }
+                recordLoginAttempt($conn, $requestKey, false);
+            }
+
+            $notice = 'If your details match and the email was sent, check the inbox and Spam folder for the resident number. If it does not arrive, wait before requesting again or contact the barangay office.';
+        }
+    } else {
     if (!$registrationAllowed) {
         $error = 'Resident account registration is currently disabled.';
     } elseif ($old['first_name'] === '' || $old['last_name'] === '' || $old['resident_number'] === '' || $old['username'] === '' || $old['email'] === '' || $password === '') {
@@ -52,10 +84,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!isset($_POST['terms'])) {
             $error = 'You must accept the Terms and Conditions.';
         } elseif (isLoginRateLimited($conn, 'register:' . strtolower($old['resident_number']))) {
-            // Same throttle as login (per IP or per resident number), so resident numbers can't be guessed in bulk.
             $error = 'Too many registration attempts. Please wait 15 minutes before trying again.';
         } else {
-            // Unconfirmed sign-ups older than a day give their username and email back.
+            // Remove old unconfirmed accounts left by the previous email-link flow.
             $conn->query("DELETE FROM users WHERE status = 'Unverified' AND created_at < UTC_TIMESTAMP() - INTERVAL 1 DAY");
 
             $stmt = $conn->prepare('SELECT id FROM residents WHERE resident_number = ? AND first_name = ? AND last_name = ? AND email = ? LIMIT 1');
@@ -78,44 +109,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($exists) {
                     $error = 'That username, email address, or resident already has an account.';
                 } else {
-                    // The account stays Unverified until the link sent to the resident's email is opened,
-                    // so knowing someone's details is not enough to take over their records.
-                    $verifyToken = bin2hex(random_bytes(32));
-                    $verifyHash = hash('sha256', $verifyToken);
                     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
                     $role = 'resident';
-                    $status = 'Unverified';
-                    $stmt = $conn->prepare('INSERT INTO users (first_name, last_name, username, email, password_hash, role, status, address, resident_id, email_verify_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-                    $stmt->bind_param('ssssssssis', $old['first_name'], $old['last_name'], $old['username'], $old['email'], $passwordHash, $role, $status, $old['address'], $residentId, $verifyHash);
+                    $status = 'Active';
+                    $stmt = $conn->prepare('INSERT INTO users (first_name, last_name, username, email, password_hash, role, status, address, resident_id, email_verify_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)');
+                    $stmt->bind_param('ssssssssi', $old['first_name'], $old['last_name'], $old['username'], $old['email'], $passwordHash, $role, $status, $old['address'], $residentId);
+                    try {
+                        $inserted = $stmt->execute();
+                        $duplicate = false;
+                    } catch (mysqli_sql_exception $exception) {
+                        $inserted = false;
+                        $duplicate = $exception->getCode() === 1062;
+                    }
 
-                    if ($stmt->execute()) {
+                    if ($inserted) {
                         $newUserId = (int)$stmt->insert_id;
                         $stmt->close();
-                        $settings = $conn->query('SELECT email FROM barangay_settings LIMIT 1')->fetch_assoc() ?: [];
-                        $from = trim((string)($settings['email'] ?? '')) ?: trim((string)(getenv('MAIL_FROM') ?: ''));
-                        $baseUrl = rtrim(trim(getenv('APP_URL') ?: 'https://barangayms.up.railway.app'), '/');
-                        $verifyUrl = $baseUrl . '/verify_email.php?token=' . urlencode($verifyToken);
-                        $body = 'Hello ' . $old['first_name'] . ",\n\nConfirm your email to activate your Barangay Management System account:\n\n" . $verifyUrl . "\n\nThis link expires in 24 hours. If you did not create this account, ignore this email.\n";
-
-                        if ($from !== '' && sendSmtpEmail($old['email'], 'Confirm your Barangay MS account', $body, $from)) {
-                            logActivity($conn, 'created', 'users', 'Resident account registered via public form; awaiting email confirmation.', $newUserId, null);
-                            header('Location: auth.php?registered=1');
-                            exit;
+                        try {
+                            logActivity($conn, 'created', 'users', 'Resident account registered via public form.', $newUserId, null);
+                        } catch (Throwable $logError) {
+                            error_log('Registration activity log failed: ' . $logError->getMessage());
                         }
-
-                        // Without the email the account could never be activated, so do not keep it.
-                        $stmt = $conn->prepare('DELETE FROM users WHERE id = ?');
-                        $stmt->bind_param('i', $newUserId);
-                        $stmt->execute();
-                        $stmt->close();
-                        $error = 'We could not send the confirmation email. Please try again later or visit the barangay office.';
+                        header('Location: auth.php?registered=1');
+                        exit;
                     } else {
-                        $error = 'Registration failed. Please try again.';
                         $stmt->close();
+                        $error = $duplicate
+                            ? 'That username, email address, or resident already has an account.'
+                            : 'Registration failed. Please try again.';
                     }
                 }
             }
         }
+    }
     }
 }
 
@@ -158,6 +184,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if ($error !== ''): ?>
             <div class="error-message" role="alert">
                 <?php echo h($error); ?>
+            </div>
+        <?php endif; ?>
+        <?php if ($notice !== ''): ?>
+            <div class="success-message" role="status">
+                <?php echo h($notice); ?>
             </div>
         <?php endif; ?>
 
@@ -209,6 +240,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         autocomplete="off"
                         required>
                     </div>
+
+            <div class="resident-number-help">
+                <button type="submit" name="action" value="get_resident_number" formnovalidate class="secondary-button">Get Resident Number</button>
+                <p>We will send it to the email address registered with the barangay.</p>
+            </div>
 
             <!-- Username -->
             <div class="input-box">
@@ -267,7 +303,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     placeholder="Password"
                     required>
 
-                <i class="fa-regular fa-eye"></i>
+                <button type="button" class="password-toggle" aria-controls="password" aria-label="Show password" aria-pressed="false">
+                    <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                </button>
             </div>
 
             <!-- Confirm Password -->
@@ -283,7 +321,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     placeholder="Confirm Password"
                     required>
 
-                <i class="fa-regular fa-eye"></i>
+                <button type="button" class="password-toggle" aria-controls="confirm_password" aria-label="Show password" aria-pressed="false">
+                    <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                </button>
             </div>
 
             <!-- Terms -->
@@ -318,6 +358,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </div>
 
 
+<script>
+    document.querySelectorAll('.password-toggle').forEach((toggle) => {
+        const input = document.getElementById(toggle.getAttribute('aria-controls'));
+        if (!input) return;
+
+        toggle.addEventListener('click', () => {
+            const showPassword = input.type === 'password';
+            input.type = showPassword ? 'text' : 'password';
+            toggle.setAttribute('aria-pressed', String(showPassword));
+            toggle.setAttribute('aria-label', showPassword ? 'Hide password' : 'Show password');
+            toggle.innerHTML = '<i class="fa-solid ' + (showPassword ? 'fa-eye-slash' : 'fa-eye') + '" aria-hidden="true"></i>';
+            input.focus();
+            input.setSelectionRange(input.value.length, input.value.length);
+        });
+    });
+</script>
 <script src="password-peek.js"></script>
 </body>
 </html>
