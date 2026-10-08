@@ -2,22 +2,39 @@
 
 date_default_timezone_set('Asia/Manila');
 
-// Use Railway's MYSQL* variables in production and keep XAMPP defaults locally.
-$DB_HOST = getenv('MYSQLHOST') ?: getenv('DB_HOST') ?: 'localhost';
-$DB_PORT = (int)(getenv('MYSQLPORT') ?: getenv('DB_PORT') ?: 3306);
-$DB_USER = getenv('MYSQLUSER') ?: getenv('DB_USER') ?: 'root';
-$DB_PASS = getenv('MYSQLPASSWORD') ?: getenv('DB_PASS') ?: '';
-$DB_NAME = getenv('MYSQLDATABASE') ?: getenv('DB_NAME') ?: 'dbbarangaymanagement';
+// Railway's database resource exposes a connection URL. Prefer it when present so
+// the application can connect without manually copying individual credentials.
+$DB_URL = getenv('DATABASE_URL') ?: getenv('MYSQL_URL');
+if ($DB_URL) {
+    $DB_URL_PARTS = parse_url($DB_URL);
+    if (!$DB_URL_PARTS || empty($DB_URL_PARTS['host']) || empty($DB_URL_PARTS['path'])) {
+        die('Invalid DATABASE_URL configuration.');
+    }
+
+    $DB_HOST = $DB_URL_PARTS['host'];
+    $DB_PORT = isset($DB_URL_PARTS['port']) ? (int)$DB_URL_PARTS['port'] : 3306;
+    $DB_USER = rawurldecode($DB_URL_PARTS['user'] ?? '');
+    $DB_PASS = rawurldecode($DB_URL_PARTS['pass'] ?? '');
+    $DB_NAME = trim($DB_URL_PARTS['path'], '/');
+} else {
+    // Use Railway's MYSQL* variables in production and keep XAMPP defaults locally.
+    $DB_HOST = getenv('MYSQLHOST') ?: getenv('DB_HOST') ?: 'localhost';
+    $DB_PORT = (int)(getenv('MYSQLPORT') ?: getenv('DB_PORT') ?: 3306);
+    $DB_USER = getenv('MYSQLUSER') ?: getenv('DB_USER') ?: 'root';
+    $DB_PASS = getenv('MYSQLPASSWORD') ?: getenv('DB_PASS') ?: '';
+    $DB_NAME = getenv('MYSQLDATABASE') ?: getenv('DB_NAME') ?: 'dbbarangaymanagement';
+}
 
 $conn = new mysqli($DB_HOST, $DB_USER, $DB_PASS, $DB_NAME, $DB_PORT);
 if ($conn->connect_error) {
-    die('Database connection failed: ' . $conn->connect_error);
+    error_log('Database connection failed: ' . $conn->connect_error);
+    $GLOBALS['databaseConnectionError'] = 'Database connection unavailable.';
+} else {
+    $conn->set_charset('utf8mb4');
+    // Store timestamps in UTC everywhere (Railway's MySQL already is; XAMPP uses the PC's zone).
+    // formatDatabaseDateTime() converts them to Manila time for display.
+    @ $conn->query("SET time_zone = '+00:00'");
 }
-
-$conn->set_charset('utf8mb4');
-// Store timestamps in UTC everywhere (Railway's MySQL already is; XAMPP uses the PC's zone).
-// formatDatabaseDateTime() converts them to Manila time for display.
-$conn->query("SET time_zone = '+00:00'");
 
 function ensureBarangaySettingsSchema(mysqli $conn): void {
     $conn->query(
@@ -57,7 +74,9 @@ function ensureBarangaySettingsSchema(mysqli $conn): void {
     }
 }
 
-ensureBarangaySettingsSchema($conn);
+if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
+    ensureBarangaySettingsSchema($conn);
+}
 
 function h(mixed $value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -935,10 +954,32 @@ function nextEmergencyTrackingNumber(mysqli $conn): string {
     return $prefix . str_pad((string)$next, 4, '0', STR_PAD_LEFT);
 }
 
-ensureActivityLogsTable($conn);
-ensureEmergencyAlertsTable($conn);
-ensureUserAccountColumns($conn);
-ensureCertificateRequesterColumns($conn);
-migrateRegisteredVoterCategory($conn);
-expireOfficialTerms($conn);
+function runDatabaseMigration(callable $migration, string $name): void {
+    set_error_handler(static function (int $level, string $message, string $file, int $line): never {
+        throw new ErrorException($message, 0, $level, $file, $line);
+    });
+
+    try {
+        $migration();
+    } catch (Throwable $exception) {
+        error_log(sprintf(
+            'Database migration %s failed: %s in %s:%d',
+            $name,
+            $exception->getMessage(),
+            $exception->getFile(),
+            $exception->getLine()
+        ));
+    } finally {
+        restore_error_handler();
+    }
+}
+
+if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
+    runDatabaseMigration(static fn () => ensureActivityLogsTable($GLOBALS['conn']), 'activity_logs');
+    runDatabaseMigration(static fn () => ensureEmergencyAlertsTable($GLOBALS['conn']), 'emergency_alerts');
+    runDatabaseMigration(static fn () => ensureUserAccountColumns($GLOBALS['conn']), 'user account columns');
+    runDatabaseMigration(static fn () => ensureCertificateRequesterColumns($GLOBALS['conn']), 'certificate requester columns');
+    runDatabaseMigration(static fn () => migrateRegisteredVoterCategory($GLOBALS['conn']), 'registered voter migration');
+    runDatabaseMigration(static fn () => expireOfficialTerms($GLOBALS['conn']), 'official terms');
+}
 // Scheduled backups run through backup.php, not during web requests.
