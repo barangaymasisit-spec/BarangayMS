@@ -553,7 +553,7 @@ tbody tr:hover{
 @media(max-width:1200px){
 
     .live-clock{
-        display:none;
+        display:flex;
     }
 
 }
