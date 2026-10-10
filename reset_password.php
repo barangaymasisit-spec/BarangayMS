@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/toast.php';
 
 ensurePasswordResetTable($conn);
 $token = trim($_GET['token'] ?? $_POST['token'] ?? '');
@@ -67,12 +68,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reset Password | Barangay Management System</title>
     <link rel="stylesheet" href="auth.css?v=2">
+    <link rel="stylesheet" href="toast.css?v=1">
 </head>
 <body>
 <div class="container"><div class="login-box">
     <h2>Reset Password</h2>
     <?php if ($success): ?>
-        <div class="success-message" role="status">Your password has been updated.</div>
+        <?php renderToast('Your password has been updated.'); ?>
         <div class="links"><a href="auth.php">Return to Login</a></div>
     <?php else: ?>
         <?php if ($error !== ''): ?><div class="error-message" role="alert"><?php echo h($error); ?></div><?php endif; ?>
@@ -85,5 +87,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php endif; ?>
 </div></div>
 <script src="password-peek.js"></script>
+<script src="toast.js?v=1"></script>
 </body>
 </html>

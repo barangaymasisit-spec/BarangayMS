@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/toast.php';
 
 $error = '';
 $sent = false;
@@ -61,13 +62,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Forgot Password | Barangay Management System</title>
     <link rel="stylesheet" href="auth.css?v=2">
+    <link rel="stylesheet" href="toast.css?v=1">
 </head>
 <body>
 <div class="container"><div class="login-box">
     <h2>Forgot Password</h2>
     <p>Enter your registered email to receive a reset link.</p>
     <?php if ($error !== ''): ?><div class="error-message" role="alert"><?php echo h($error); ?></div><?php endif; ?>
-    <?php if ($sent): ?><div class="success-message" role="status">A reset link has been sent to your email.</div><?php endif; ?>
+    <?php if ($sent): ?><?php renderToast('A reset link has been sent to your email.'); ?><?php endif; ?>
     <?php if (!$sent): ?>
     <form method="post" action="forgot_password.php">
         <?php echo csrfField(); ?>
@@ -77,5 +79,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php endif; ?>
     <div class="links"><a href="auth.php">Back to Login</a></div>
 </div></div>
+<script src="toast.js?v=1"></script>
 </body>
 </html>

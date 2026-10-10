@@ -2,6 +2,7 @@
 .claude
 uploads/*
 backups
+barangayms-backup-*.sql
 cookies.txt
 headers.txt
 resp_headers.txt

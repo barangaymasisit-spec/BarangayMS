@@ -294,7 +294,7 @@ $savedBackups = $conn->query('SELECT id, backup_date, LENGTH(sql_dump) AS size_b
         <?php endif; ?>
 
         <?php if ($success !== ''): ?>
-            <div class="alert alert-success" role="status"><?php echo h($success); ?></div>
+            <?php renderToast($success); ?>
         <?php endif; ?>
 
         <?php if ($recoveryNotice !== ''): ?>

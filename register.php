@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/toast.php';
 
 if (isset($_SESSION['user_id'])) {
     header('Location: dashboard.php');
@@ -154,6 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title>Create Account</title>
 
     <link rel="stylesheet" href="register.css?v=3">
+    <link rel="stylesheet" href="toast.css?v=1">
 
     <link rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
@@ -187,9 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         <?php endif; ?>
         <?php if ($notice !== ''): ?>
-            <div class="success-message" role="status">
-                <?php echo h($notice); ?>
-            </div>
+            <?php renderToast($notice); ?>
         <?php endif; ?>
 
         <form action="register.php" method="POST">
@@ -375,5 +375,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     });
 </script>
 <script src="password-peek.js"></script>
+<script src="toast.js?v=1"></script>
 </body>
 </html>

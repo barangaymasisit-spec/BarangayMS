@@ -1,18 +1,45 @@
 <?php
 
+function databaseConnectionSettings(): array {
+    $url = getenv('DATABASE_URL') ?: getenv('MYSQL_URL');
+    if ($url) {
+        $parts = parse_url($url);
+        if (!$parts || empty($parts['host']) || empty($parts['path'])) {
+            throw new RuntimeException('Invalid DATABASE_URL configuration.');
+        }
+
+        return [
+            'host' => $parts['host'],
+            'port' => isset($parts['port']) ? (int)$parts['port'] : 3306,
+            'user' => rawurldecode($parts['user'] ?? ''),
+            'password' => rawurldecode($parts['pass'] ?? ''),
+            'database' => trim($parts['path'], '/'),
+        ];
+    }
+
+    return [
+        'host' => getenv('MYSQLHOST') ?: getenv('DB_HOST') ?: 'localhost',
+        'port' => (int)(getenv('MYSQLPORT') ?: getenv('DB_PORT') ?: 3306),
+        'user' => getenv('MYSQLUSER') ?: getenv('DB_USER') ?: 'root',
+        'password' => getenv('MYSQLPASSWORD') ?: getenv('DB_PASS') ?: '',
+        'database' => getenv('MYSQLDATABASE') ?: getenv('DB_NAME') ?: 'dbbarangaymanagement',
+    ];
+}
+
 final class DatabaseSessionHandler implements SessionHandlerInterface {
     private ?mysqli $connection = null;
     private static bool $tableChecked = false;
 
     public static function databaseAvailable(): bool {
-        $host = getenv('MYSQLHOST') ?: getenv('DB_HOST') ?: 'localhost';
-        $port = (int)(getenv('MYSQLPORT') ?: getenv('DB_PORT') ?: 3306);
-        $user = getenv('MYSQLUSER') ?: getenv('DB_USER') ?: 'root';
-        $password = getenv('MYSQLPASSWORD') ?: getenv('DB_PASS') ?: '';
-        $database = getenv('MYSQLDATABASE') ?: getenv('DB_NAME') ?: 'dbbarangaymanagement';
-
         try {
-            $conn = @new mysqli($host, $user, $password, $database, $port);
+            $settings = databaseConnectionSettings();
+            $conn = @new mysqli(
+                $settings['host'],
+                $settings['user'],
+                $settings['password'],
+                $settings['database'],
+                $settings['port']
+            );
             if ($conn->connect_error) {
                 return false;
             }
@@ -25,14 +52,15 @@ final class DatabaseSessionHandler implements SessionHandlerInterface {
     }
 
     public function open(string $path, string $name): bool {
-        $host = getenv('MYSQLHOST') ?: getenv('DB_HOST') ?: 'localhost';
-        $port = (int)(getenv('MYSQLPORT') ?: getenv('DB_PORT') ?: 3306);
-        $user = getenv('MYSQLUSER') ?: getenv('DB_USER') ?: 'root';
-        $password = getenv('MYSQLPASSWORD') ?: getenv('DB_PASS') ?: '';
-        $database = getenv('MYSQLDATABASE') ?: getenv('DB_NAME') ?: 'dbbarangaymanagement';
-
         try {
-            $this->connection = @new mysqli($host, $user, $password, $database, $port);
+            $settings = databaseConnectionSettings();
+            $this->connection = @new mysqli(
+                $settings['host'],
+                $settings['user'],
+                $settings['password'],
+                $settings['database'],
+                $settings['port']
+            );
             if (!$this->connection || $this->connection->connect_error) {
                 $this->connection = null;
                 return false;
@@ -340,13 +368,6 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
-
-    if (DatabaseSessionHandler::databaseAvailable()) {
-        $sessionHandler = new DatabaseSessionHandler();
-        session_set_save_handler($sessionHandler, true);
-    } else {
-        error_log('Database session store unavailable; falling back to PHP file-based sessions.');
-    }
 
     ini_set('session.use_strict_mode', '1');
     session_start();

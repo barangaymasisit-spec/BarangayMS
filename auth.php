@@ -1,7 +1,12 @@
 <?php
 require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/toast.php';
 applyNoStoreHeaders();
+
+if (isset($databaseConnectionError)) {
+    http_response_code(503);
+}
 
 if (isset($_SESSION['user_id']) && !empty($_SESSION['role'])) {
     $redirectPage = ($_SESSION['role'] === 'resident') ? 'resident_dashboard.php' : 'dashboard.php';
@@ -92,6 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Barangay Management System | Login</title>
     <link rel="stylesheet" href="auth.css?v=2">
+    <link rel="stylesheet" href="toast.css?v=1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
 </head>
 <body>
@@ -119,6 +125,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         <?php endif; ?>
 
+        <?php if (isset($databaseConnectionError)): ?>
+            <div class="error-message" role="alert">
+                The management system is temporarily unavailable. Please try again shortly.
+            </div>
+        <?php endif; ?>
+
         <?php if (isset($_GET['denied'])): ?>
             <div class="error-message" role="alert">
                 That account is not allowed to open the management system.
@@ -132,9 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <?php if (isset($_GET['verified'])): ?>
-            <div class="success-message" role="status">
-                Your email is confirmed. You may now log in.
-            </div>
+            <?php renderToast('Your email is confirmed. You may now log in.'); ?>
         <?php endif; ?>
 
         <?php if (isset($_GET['verify_failed'])): ?>
@@ -144,9 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <?php if (isset($_GET['registered'])): ?>
-            <div class="success-message" role="status">
-                Your account has been created. You may now log in.
-            </div>
+            <?php renderToast('Your account has been created. You may now log in.'); ?>
         <?php endif; ?>
 
         <form action="auth.php" method="POST">
@@ -228,5 +236,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </script>
 
 <script src="password-peek.js"></script>
+<script src="toast.js?v=1"></script>
 </body>
 </html>

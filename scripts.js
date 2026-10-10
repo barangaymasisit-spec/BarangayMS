@@ -1,4 +1,13 @@
 document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('click', function (event) {
+        const target = event.target;
+        const logoutLink = target instanceof Element ? target.closest('a[data-confirm]') : null;
+        if (logoutLink && !window.confirm(logoutLink.dataset.confirm || 'Are you sure?')) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }
+    }, true);
+
     const currentUrl = new URL(window.location.href);
     if (currentUrl.searchParams.get('csrf_recovered') === '1') {
         currentUrl.searchParams.delete('csrf_recovered');

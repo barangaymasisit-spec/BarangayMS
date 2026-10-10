@@ -19,18 +19,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_SESSION['role'] ?? '', [
     exit;
 }
 
-// Message handling
-$notice = '';
-if (isset($_GET['msg'])) {
-    if ($_GET['msg'] === 'deleted') {
-        $notice = 'Resident record deleted.';
-    } elseif ($_GET['msg'] === 'created') {
-        $notice = 'Resident record created.';
-    } elseif ($_GET['msg'] === 'updated') {
-        $notice = 'Resident record updated.';
-    }
-}
-
 $fields = $isHealthWorker
     ? 'id, resident_number, first_name, middle_name, last_name, resident_status, blood_type_health, medical_condition, categories'
     : 'id, resident_number, first_name, middle_name, last_name, resident_status, mobile_number, email';
@@ -113,9 +101,11 @@ $generatedResidentNumber = nextResidentNumber($conn);
 
         <?php renderTopbar('Resident Information', 'Manage Resident Profile', 'panel', ['clock' => true]); ?>
 
-        <?php if ($notice !== ''): ?>
-            <div class="notice" role="status"><?php echo h($notice); ?></div>
-        <?php endif; ?>
+        <?php renderNotice([
+            'created' => 'Resident record created.',
+            'updated' => 'Resident record updated.',
+            'deleted' => 'Resident record deleted.',
+        ]); ?>
 
         <?php if (in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true)): ?>
         <form action="resident_form.php" method="POST" enctype="multipart/form-data">

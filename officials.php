@@ -523,11 +523,11 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         <?php elseif ($officialError !== ''): ?>
             <div class="alert alert-danger" role="alert"><?php echo h($officialError); ?></div>
         <?php elseif ($photoSuccess): ?>
-            <div class="alert alert-success" role="status">Official photo uploaded successfully.</div>
+            <?php renderToast('Official photo uploaded successfully.'); ?>
         <?php elseif (isset($_GET['saved'])): ?>
-            <div class="alert alert-success" role="status">Official account saved successfully.</div>
+            <?php renderToast('Official account saved successfully.'); ?>
         <?php elseif (isset($_GET['deleted'])): ?>
-            <div class="alert alert-success" role="status">Official account deleted successfully.</div>
+            <?php renderToast('Official account deleted successfully.'); ?>
         <?php endif; ?>
 
         <div id="liveBarangayOfficials" data-live-personnel>
