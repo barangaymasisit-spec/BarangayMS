@@ -2,10 +2,87 @@ document.addEventListener('DOMContentLoaded', function () {
     document.addEventListener('click', function (event) {
         const target = event.target;
         const logoutLink = target instanceof Element ? target.closest('a[data-confirm]') : null;
-        if (logoutLink && !window.confirm(logoutLink.dataset.confirm || 'Are you sure?')) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
+        if (!logoutLink) {
+            return;
         }
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        const previousFocus = document.activeElement;
+        const previousOverflow = document.body.style.overflow;
+        const overlay = document.createElement('div');
+        overlay.className = 'confirm-overlay';
+        overlay.innerHTML = [
+            '<section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-description" tabindex="-1">',
+            '<div class="confirm-dialog-accent" aria-hidden="true"></div>',
+            '<div class="confirm-dialog-content">',
+            '<div class="confirm-dialog-mark" aria-hidden="true"><span>!</span></div>',
+            '<p class="confirm-dialog-eyebrow">BARANGAY MANAGEMENT SYSTEM</p>',
+            '<h2 id="confirm-dialog-title">Confirm logout</h2>',
+            '<p id="confirm-dialog-description">Are you sure you want to log out of your account?</p>',
+            '<div class="confirm-dialog-actions">',
+            '<button type="button" class="confirm-dialog-cancel">Stay signed in</button>',
+            '<button type="button" class="confirm-dialog-accept"><span>Log out</span><span aria-hidden="true">→</span></button>',
+            '</div>',
+            '</div>',
+            '</section>'
+        ].join('');
+
+        const dialog = overlay.querySelector('.confirm-dialog');
+        overlay.querySelector('#confirm-dialog-description').textContent =
+            logoutLink.dataset.confirm || 'Are you sure you want to log out of your account?';
+        const cancelButton = overlay.querySelector('.confirm-dialog-cancel');
+        const acceptButton = overlay.querySelector('.confirm-dialog-accept');
+        let isClosed = false;
+
+        const closeDialog = function () {
+            if (isClosed) {
+                return;
+            }
+            isClosed = true;
+            overlay.classList.add('is-closing');
+            window.setTimeout(function () {
+                overlay.remove();
+                document.body.style.overflow = previousOverflow;
+                if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+                    previousFocus.focus();
+                }
+            }, 180);
+        };
+
+        cancelButton.addEventListener('click', closeDialog);
+        acceptButton.addEventListener('click', function () {
+            window.location.assign(logoutLink.href);
+        });
+        overlay.addEventListener('click', function (overlayEvent) {
+            if (overlayEvent.target === overlay) {
+                closeDialog();
+            }
+        });
+        dialog.addEventListener('keydown', function (keyboardEvent) {
+            if (keyboardEvent.key === 'Escape') {
+                keyboardEvent.preventDefault();
+                closeDialog();
+                return;
+            }
+            if (keyboardEvent.key !== 'Tab') {
+                return;
+            }
+
+            const focusable = [cancelButton, acceptButton];
+            if (keyboardEvent.shiftKey && document.activeElement === focusable[0]) {
+                keyboardEvent.preventDefault();
+                focusable[focusable.length - 1].focus();
+            } else if (!keyboardEvent.shiftKey && document.activeElement === focusable[focusable.length - 1]) {
+                keyboardEvent.preventDefault();
+                focusable[0].focus();
+            }
+        });
+
+        document.body.appendChild(overlay);
+        document.body.style.overflow = 'hidden';
+        cancelButton.focus();
     }, true);
 
     const currentUrl = new URL(window.location.href);
