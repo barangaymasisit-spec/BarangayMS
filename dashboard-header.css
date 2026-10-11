@@ -123,8 +123,8 @@
 
     .dashboard-header-actions {
         display: grid !important;
-        grid-template-columns: minmax(0, 1fr) 44px 44px;
-        align-items: center;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
         justify-content: stretch !important;
         gap: 9px !important;
         width: 100% !important;
@@ -135,16 +135,28 @@
 
     .dashboard-header-clock-group,
     .dashboard-header-profile {
-        display: contents;
+        display: flex !important;
+        align-items: center;
+        min-width: 0;
     }
 
     .topbar-right.dashboard-header-actions > .dashboard-header-profile {
-        display: contents !important;
+        display: flex !important;
+        grid-column: 2;
+        grid-row: 1;
+        align-self: start;
+        gap: 8px !important;
+    }
+
+    .dashboard-header-clock-group {
+        grid-column: 1;
+        grid-row: 1;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px !important;
     }
 
     .dashboard-header-clock-group > .live-clock {
-        grid-column: 1;
-        grid-row: 1;
         width: 100%;
         min-height: 58px;
         justify-content: flex-start;
@@ -178,8 +190,6 @@
     }
 
     .dashboard-header-clock-group > .btn-primary {
-        grid-column: 1;
-        grid-row: 2;
         width: 100%;
         min-height: 44px;
         justify-content: center;
@@ -191,9 +201,8 @@
     }
 
     .dashboard-header-profile > .notification-wrap {
-        grid-column: 2;
-        grid-row: 1;
-        justify-self: center;
+        position: relative;
+        display: inline-flex !important;
         width: 44px;
         height: 44px;
         flex: none;
@@ -205,9 +214,7 @@
     }
 
     .dashboard-header-profile > .dashboard-header-admin {
-        grid-column: 3;
-        grid-row: 1;
-        justify-self: center;
+        display: flex !important;
         width: 44px;
         height: 44px;
         flex: none;
@@ -229,14 +236,11 @@
         display: none !important;
     }
 
-    .dashboard-header-actions > .dashboard-header-profile {
-        display: contents;
-    }
 }
 
 @media (max-width: 360px) {
     .dashboard-header-actions {
-        grid-template-columns: minmax(0, 1fr) 40px 40px;
+        grid-template-columns: minmax(0, 1fr) auto;
         gap: 7px !important;
     }
 
