@@ -137,6 +137,15 @@ body{
     box-shadow:0 5px 20px rgba(0,0,0,.08);
 }
 
+.topbar > div:first-of-type h1{
+    color:#0B4A9E;
+    text-align:left;
+}
+
+.topbar > div:first-of-type p{
+    text-align:left;
+}
+
 .topbar-right{
     display:flex;
     align-items:center;
