@@ -69,7 +69,7 @@ $complaintAlerts = $conn->query("SELECT tracking_number, category, resident_name
     <main class="main-content">
 
         <!-- TOP HEADER -->
-        <?php renderTopbar('Complaints & Alerts', 'Barangay Management System', 'compact', ['clock' => true]); ?>
+        <?php renderTopbar('Complaints & Alerts', 'Barangay Management System', 'compact', ['clock' => true, 'dashboardHeader' => true]); ?>
 
         <?php renderNotice([
             'created' => 'Complaint record created.',

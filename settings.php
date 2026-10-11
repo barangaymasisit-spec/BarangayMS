@@ -287,7 +287,7 @@ $savedBackups = $conn->query('SELECT id, backup_date, LENGTH(sql_dump) AS size_b
 
         <!-- Header -->
 
-        <?php renderTopbar('Settings', 'Configure Barangay Information and System Preferences', 'compact', ['clock' => true]); ?>
+        <?php renderTopbar('Settings', 'Configure Barangay Information and System Preferences', 'compact', ['clock' => true, 'dashboardHeader' => true]); ?>
 
         <?php if ($error !== ''): ?>
             <div class="alert alert-danger" role="alert"><?php echo h($error); ?></div>

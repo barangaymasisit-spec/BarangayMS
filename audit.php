@@ -77,7 +77,7 @@ $queryBase = ['search' => $search, 'action' => $actionFilter, 'entity' => $entit
 <div class="wrapper">
     <?php renderSidebar('audit', 'compact'); ?>
     <main class="main-content">
-        <?php renderTopbar('Audit History', 'Review account activity and changes across the system.', 'compact', ['clock' => true]); ?>
+        <?php renderTopbar('Audit History', 'Review account activity and changes across the system.', 'compact', ['clock' => true, 'dashboardHeader' => true]); ?>
 
         <div class="content-card filter-card mb-4">
             <div class="card-header-custom">

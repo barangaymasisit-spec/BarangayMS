@@ -61,7 +61,7 @@ $alertRows = [];
 
     <main class="main-content">
 
-        <?php renderTopbar('Emergency Alerts', 'Monitor and broadcast barangay emergency alerts.', 'compact', ['clock' => true]); ?>
+        <?php renderTopbar('Emergency Alerts', 'Monitor and broadcast barangay emergency alerts.', 'compact', ['clock' => true, 'dashboardHeader' => true]); ?>
 
         <?php renderNotice([
             'sent' => 'Emergency alert sent to all residents.',

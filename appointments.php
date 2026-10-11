@@ -93,7 +93,7 @@ function formatTime($time) {
 
     <main class="main-content">
 
-        <?php renderTopbar('Appointments', 'Manage Resident Appointments', 'compact', ['clock' => true]); ?>
+        <?php renderTopbar('Appointments', 'Manage Resident Appointments', 'compact', ['clock' => true, 'dashboardHeader' => true]); ?>
 
         <?php renderNotice([
             'created' => 'Appointment scheduled.',

@@ -402,10 +402,12 @@ function liveClockMarkup(): string {
  *   'breadcrumb' => current page label for the breadcrumb trail
  *                   (household.css / certification.css)
  *   'actions'    => extra HTML rendered before the profile block
+ *   'dashboardHeader' => align the clock, notifications and profile as in the dashboard
  */
 function renderTopbar(string $title, string $subtitle, string $variant = 'panel', array $options = []): void {
     global $conn;
     $clock = !empty($options['clock']);
+    $dashboardHeader = !empty($options['dashboardHeader']);
     $breadcrumb = $options['breadcrumb'] ?? '';
     $actions = $options['actions'] ?? '';
     $userName = htmlspecialchars(currentUserName(), ENT_QUOTES, 'UTF-8');
@@ -414,7 +416,8 @@ function renderTopbar(string $title, string $subtitle, string $variant = 'panel'
     $notificationTotal = notificationCount($conn);
     $notificationLabel = $notificationTotal > 99 ? '99+' : (string)$notificationTotal;
 
-    echo $variant === 'compact' ? '<div class="topbar">' : '<header class="topbar">';
+    $headerClass = 'topbar' . ($dashboardHeader ? ' dashboard-header-layout' : '');
+    echo $variant === 'compact' ? '<div class="' . $headerClass . '">' : '<header class="' . $headerClass . '">';
     echo '<button type="button" class="mobile-sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false"><span></span><span></span><span></span></button>';
 
     echo '<div>';
@@ -429,6 +432,24 @@ function renderTopbar(string $title, string $subtitle, string $variant = 'panel'
     echo '</div>';
 
     if ($variant === 'compact') {
+        if ($dashboardHeader) {
+            echo '<div class="dashboard-header-actions topbar-right">';
+            if ($clock || $actions !== '') {
+                echo '<div class="dashboard-header-clock-group">';
+                if ($clock) {
+                    echo liveClockMarkup();
+                }
+                echo $actions;
+                echo '</div>';
+            }
+            echo '<div class="dashboard-header-profile">';
+            echo notificationBell($conn);
+            echo '<div class="admin dashboard-header-admin"><img src="' . htmlspecialchars($profileLogo, ENT_QUOTES, 'UTF-8') . '" class="profile-logo" alt="Administrator Profile"><div><h4>' . $userName . '</h4><small>' . $userRole . '</small></div></div>';
+            echo '</div>';
+            echo '</div></div>';
+            return;
+        }
+
         echo '<div class="profile-section">';
         if ($clock) {
             echo liveClockMarkup();
@@ -442,7 +463,25 @@ function renderTopbar(string $title, string $subtitle, string $variant = 'panel'
         return;
     }
 
-    echo '<div class="topbar-right topbar-actions' . ($clock ? ' topbar-actions-clock' : '') . '">';
+    echo '<div class="' . ($dashboardHeader ? 'topbar-right topbar-actions dashboard-header-actions' : 'topbar-right topbar-actions' . ($clock ? ' topbar-actions-clock' : '')) . '">';
+    if ($dashboardHeader) {
+        if ($clock || $actions !== '') {
+            echo '<div class="dashboard-header-clock-group">';
+            if ($clock) {
+                echo liveClockMarkup();
+            }
+            echo $actions;
+            echo '</div>';
+        }
+        echo '<div class="dashboard-header-profile">';
+        echo notificationBell($conn);
+        echo '<div class="admin dashboard-header-admin"><img src="' . htmlspecialchars($profileLogo, ENT_QUOTES, 'UTF-8') . '" alt="Administrator Profile"><div><h4>' . $userName . '</h4><small>' . $userRole . '</small></div></div>';
+        echo '</div>';
+        echo '</div>';
+        echo '</header>';
+        return;
+    }
+
     if ($clock) {
         echo liveClockMarkup();
     }
@@ -493,4 +532,5 @@ function renderFooterScripts(bool $withBootstrap = true): void {
     echo '<script src="' . asset('toast.js') . '"></script>';
     echo '<script src="' . asset('scripts.js') . '"></script>';
     echo '<script src="' . asset('password-peek.js') . '"></script>';
+    echo '<link rel="stylesheet" href="' . asset('dashboard-header.css') . '">';
 }

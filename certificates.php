@@ -162,7 +162,7 @@ $activeFilters = [
             'Online Certifications',
             'Manage certificate requests and approvals.',
             'panel',
-            ['breadcrumb' => 'Online Certifications', 'clock' => true, 'actions' => $newRequestButton]
+            ['breadcrumb' => 'Online Certifications', 'clock' => true, 'actions' => $newRequestButton, 'dashboardHeader' => true]
         );
 
         renderNotice([

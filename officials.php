@@ -516,7 +516,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
     <main class="main-content">
 
-        <?php renderTopbar('Officials', 'Barangay officials and administrative accounts.', 'compact', ['clock' => true]); ?>
+        <?php renderTopbar('Officials', 'Barangay officials and administrative accounts.', 'compact', ['clock' => true, 'dashboardHeader' => true]); ?>
 
         <?php if ($uploadError !== ''): ?>
             <div class="alert alert-danger" role="alert"><?php echo h($uploadError); ?></div>
