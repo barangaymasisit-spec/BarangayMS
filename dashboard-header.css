@@ -138,6 +138,10 @@
         display: contents;
     }
 
+    .topbar-right.dashboard-header-actions > .dashboard-header-profile {
+        display: contents !important;
+    }
+
     .dashboard-header-clock-group > .live-clock {
         grid-column: 1;
         grid-row: 1;
