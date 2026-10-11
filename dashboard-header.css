@@ -5,6 +5,16 @@
 
 .topbar.dashboard-header-layout > div:first-of-type {
     min-width: 0;
+    text-align: left !important;
+}
+
+.topbar.dashboard-header-layout h1 {
+    color: #0b4a9e !important;
+    text-align: left !important;
+}
+
+.topbar.dashboard-header-layout p {
+    text-align: left !important;
 }
 
 .dashboard-header-actions {
