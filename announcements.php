@@ -1,6 +1,36 @@
 <?php
 require_once __DIR__ . '/layout.php';
 
+if (!databaseTableExists($conn, 'announcements')) {
+    http_response_code(503);
+    header('Retry-After: 60');
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <?php pageTitle('Announcements temporarily unavailable'); ?>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link rel="stylesheet" href="<?php echo asset('settings.css'); ?>">
+        <link rel="stylesheet" href="<?php echo asset('announcements.css'); ?>">
+    </head>
+    <body>
+    <div class="wrapper">
+        <?php renderSidebar('announcements', 'compact'); ?>
+        <main class="main-content announcements-page">
+            <?php renderTopbar('Announcements', 'News and notices from your barangay office.', 'compact'); ?>
+            <div class="alert alert-warning mt-4" role="status">
+                The announcements board is temporarily unavailable. Please try again shortly.
+            </div>
+        </main>
+    </div>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
 $role = $_SESSION['role'] ?? '';
 $canManage = in_array($role, ['admin', 'staff'], true);
 $userId = (int)($_SESSION['user_id'] ?? 0);

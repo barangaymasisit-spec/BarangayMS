@@ -104,12 +104,15 @@ function staffNotifications(mysqli $conn): array {
 }
 
 function notificationCount(mysqli $conn): int {
-    $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
-    $announcementStmt = $conn->prepare("SELECT COUNT(*) FROM announcements WHERE status = 'Published' AND (expires_at IS NULL OR expires_at >= ?)");
-    $announcementStmt->bind_param('s', $today);
-    $announcementStmt->execute();
-    $announcementCount = (int)$announcementStmt->get_result()->fetch_row()[0];
-    $announcementStmt->close();
+    $announcementCount = 0;
+    if (databaseTableExists($conn, 'announcements')) {
+        $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
+        $announcementStmt = $conn->prepare("SELECT COUNT(*) FROM announcements WHERE status = 'Published' AND (expires_at IS NULL OR expires_at >= ?)");
+        $announcementStmt->bind_param('s', $today);
+        $announcementStmt->execute();
+        $announcementCount = (int)$announcementStmt->get_result()->fetch_row()[0];
+        $announcementStmt->close();
+    }
 
     if (($_SESSION['role'] ?? '') !== 'resident') {
         return $announcementCount + array_sum(array_column(staffNotifications($conn), 'total')) + count(officialTermAlerts($conn));
@@ -134,26 +137,28 @@ function notificationCount(mysqli $conn): int {
 function notificationItems(mysqli $conn): array {
     $items = [];
     $role = $_SESSION['role'] ?? '';
-    $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
-    $announcementStmt = $conn->prepare("SELECT title, body FROM announcements WHERE status = 'Published' AND (expires_at IS NULL OR expires_at >= ?) ORDER BY published_at DESC, id DESC LIMIT 5");
-    $announcementStmt->bind_param('s', $today);
-    $announcementStmt->execute();
-    $announcements = $announcementStmt->get_result();
-    while ($announcement = $announcements->fetch_assoc()) {
-        $announcementBody = trim(strip_tags($announcement['body']));
-        preg_match('/^.{0,100}/us', $announcementBody, $excerptMatch);
-        $announcementExcerpt = $excerptMatch[0] ?? '';
-        if (strlen($announcementExcerpt) < strlen($announcementBody)) {
-            $announcementExcerpt .= '...';
+    if (databaseTableExists($conn, 'announcements')) {
+        $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
+        $announcementStmt = $conn->prepare("SELECT title, body FROM announcements WHERE status = 'Published' AND (expires_at IS NULL OR expires_at >= ?) ORDER BY published_at DESC, id DESC LIMIT 5");
+        $announcementStmt->bind_param('s', $today);
+        $announcementStmt->execute();
+        $announcements = $announcementStmt->get_result();
+        while ($announcement = $announcements->fetch_assoc()) {
+            $announcementBody = trim(strip_tags($announcement['body']));
+            preg_match('/^.{0,100}/us', $announcementBody, $excerptMatch);
+            $announcementExcerpt = $excerptMatch[0] ?? '';
+            if (strlen($announcementExcerpt) < strlen($announcementBody)) {
+                $announcementExcerpt .= '...';
+            }
+            $items[] = [
+                'icon' => 'fa-bullhorn',
+                'text' => 'Announcement: ' . $announcement['title'],
+                'detail' => $announcementExcerpt,
+                'href' => 'announcements.php',
+            ];
         }
-        $items[] = [
-            'icon' => 'fa-bullhorn',
-            'text' => 'Announcement: ' . $announcement['title'],
-            'detail' => $announcementExcerpt,
-            'href' => 'announcements.php',
-        ];
+        $announcementStmt->close();
     }
-    $announcementStmt->close();
 
     if ($role === 'resident') {
         $resident = currentResident($conn);

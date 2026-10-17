@@ -728,7 +728,7 @@ const BACKUP_HEADER = '-- BarangayMS database backup';
 // database_backups holds the backups themselves; dumping it would nest every old backup in each new one.
 const BACKUP_SKIP_TABLES = ['php_sessions', 'login_attempts', 'password_resets', 'database_backups'];
 const AUTO_BACKUP_HOUR = 17; // 5:00 PM Manila
-const AUTO_BACKUPS_KEPT = 7;
+const AUTO_BACKUPS_KEPT = 2;
 
 function writeBackupChunk(mixed $output, string $chunk, ?HashContext $hash = null): void {
     if ($hash !== null) {
@@ -841,6 +841,35 @@ function ensureDatabaseBackupsTable(mysqli $conn): void {
     }
 }
 
+function pruneDatabaseBackups(mysqli $conn, int $keepCount = AUTO_BACKUPS_KEPT): int {
+    if (!databaseTableExists($conn, 'database_backups')) {
+        return 0;
+    }
+
+    $backupCount = (int)$conn->query('SELECT COUNT(*) FROM database_backups')->fetch_row()[0];
+    if ($backupCount <= $keepCount) {
+        return 0;
+    }
+
+    $oldBackups = $conn->query(
+        'SELECT id FROM database_backups
+         ORDER BY backup_date DESC, id DESC
+         LIMIT ' . $keepCount . ', 18446744073709551615'
+    );
+    $deleteStmt = $conn->prepare('DELETE FROM database_backups WHERE id = ?');
+    $deletedCount = 0;
+    while ($backup = $oldBackups->fetch_row()) {
+        $backupId = (int)$backup[0];
+        $deleteStmt->bind_param('i', $backupId);
+        $deleteStmt->execute();
+        $deletedCount += $deleteStmt->affected_rows;
+    }
+    $deleteStmt->close();
+    $oldBackups->free();
+
+    return $deletedCount;
+}
+
 /** Create a dated backup at 5 PM Manila time only when database content changed. */
 function runScheduledBackup(mysqli $conn): bool {
     if ((int)date('G') < AUTO_BACKUP_HOUR) {
@@ -872,6 +901,8 @@ function runScheduledBackup(mysqli $conn): bool {
                     return true;
                 }
                 rewind($dump);
+
+                pruneDatabaseBackups($conn, AUTO_BACKUPS_KEPT - 1);
 
                 $stmt = $conn->prepare('INSERT INTO database_backups (backup_date, content_hash, sql_dump) VALUES (?, ?, ?)');
                 $dumpPlaceholder = '';
@@ -954,6 +985,15 @@ function nextEmergencyTrackingNumber(mysqli $conn): string {
     return $prefix . str_pad((string)$next, 4, '0', STR_PAD_LEFT);
 }
 
+function databaseTableExists(mysqli $conn, string $tableName): bool {
+    $stmt = $conn->prepare('SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1');
+    $stmt->bind_param('s', $tableName);
+    $stmt->execute();
+    $exists = $stmt->get_result()->num_rows > 0;
+    $stmt->close();
+    return $exists;
+}
+
 function ensureAnnouncementsTable(mysqli $conn): void {
     $conn->query(
         'CREATE TABLE IF NOT EXISTS announcements (
@@ -997,6 +1037,12 @@ function runDatabaseMigration(callable $migration, string $name): void {
 if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     runDatabaseMigration(static fn () => ensureActivityLogsTable($GLOBALS['conn']), 'activity_logs');
     runDatabaseMigration(static fn () => ensureEmergencyAlertsTable($GLOBALS['conn']), 'emergency_alerts');
+    runDatabaseMigration(static function (): void {
+        $deletedBackups = pruneDatabaseBackups($GLOBALS['conn']);
+        if ($deletedBackups > 0) {
+            error_log(sprintf('Pruned %d old database backup(s); retaining the newest %d.', $deletedBackups, AUTO_BACKUPS_KEPT));
+        }
+    }, 'old database backups');
     runDatabaseMigration(static fn () => ensureAnnouncementsTable($GLOBALS['conn']), 'announcements');
     runDatabaseMigration(static fn () => ensureUserAccountColumns($GLOBALS['conn']), 'user account columns');
     runDatabaseMigration(static fn () => ensureCertificateRequesterColumns($GLOBALS['conn']), 'certificate requester columns');
