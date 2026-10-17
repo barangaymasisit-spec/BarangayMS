@@ -11,7 +11,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $role = $_SESSION['role'] ?? '';
-$residentPages = ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'logout.php'];
+$residentPages = ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'audit.php', 'logout.php'];
 if ($role === 'resident' && !in_array(basename($_SERVER['PHP_SELF']), $residentPages, true)) {
     header('Location: resident_dashboard.php');
     exit;
@@ -34,11 +34,11 @@ $rolePages = [
     'staff' => [
         'dashboard.php', 'residents.php', 'resident_form.php',
         'certificates.php', 'certificate_form.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php',
-        'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'logout.php',
+        'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'audit.php', 'logout.php',
     ],
-    'health_worker' => ['dashboard.php', 'residents.php', 'logout.php'],
-    'security_force' => ['dashboard.php', 'emergency.php', 'logout.php'],
-    'resident' => ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'logout.php'],
+    'health_worker' => ['dashboard.php', 'residents.php', 'audit.php', 'logout.php'],
+    'security_force' => ['dashboard.php', 'emergency.php', 'audit.php', 'logout.php'],
+    'resident' => ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'audit.php', 'logout.php'],
 ];
 if (isset($rolePages[$role]) && !in_array(basename($_SERVER['PHP_SELF']), $rolePages[$role], true)) {
     header('Location: dashboard.php?denied=1');
@@ -312,7 +312,7 @@ function sidebarLinks(): array {
         'residents'    => ['href' => 'residents.php',    'icon' => 'fa-users',                'label' => 'Residents'],
         'household'    => ['href' => 'household.php',    'icon' => 'fa-house-user',           'label' => 'Household'],
         'officials'    => ['href' => 'officials.php',    'icon' => 'fa-user-tie',             'label' => 'Officials'],
-        'audit'        => ['href' => 'audit.php',         'icon' => 'fa-clock-rotate-left',    'label' => 'Audit History'],
+        'audit'        => ['href' => 'audit.php',         'icon' => 'fa-clock-rotate-left',    'label' => 'History'],
         'certificates' => ['href' => 'certificates.php', 'icon' => 'fa-file-lines',           'label' => 'Online Certification'],
         'complaints'   => ['href' => 'complaints.php',   'icon' => 'fa-circle-exclamation',   'label' => 'Complaints &amp; Alerts'],
         'appointments' => ['href' => 'appointments.php', 'icon' => 'fa-calendar-check',       'label' => 'Appointments'],
@@ -323,11 +323,11 @@ function sidebarLinks(): array {
 
     $role = $_SESSION['role'] ?? '';
     if ($role === 'staff') {
-        unset($links['household'], $links['officials'], $links['audit'], $links['emergency'], $links['settings']);
+        unset($links['household'], $links['officials'], $links['emergency'], $links['settings']);
     } elseif ($role === 'health_worker') {
-        $links = array_intersect_key($links, array_flip(['dashboard', 'residents', 'logout']));
+        $links = array_intersect_key($links, array_flip(['dashboard', 'residents', 'audit', 'logout']));
     } elseif ($role === 'security_force') {
-        $links = array_intersect_key($links, array_flip(['dashboard', 'emergency', 'logout']));
+        $links = array_intersect_key($links, array_flip(['dashboard', 'emergency', 'audit', 'logout']));
     }
 
     return $links;
@@ -348,6 +348,7 @@ function renderSidebar(string $activePage, string $variant = 'panel'): void {
             'resident_appointment' => ['href' => 'appointment_form.php', 'icon' => 'fa-calendar-check', 'label' => 'Book Appointment'],
             'resident_complaint' => ['href' => 'complaint_form.php', 'icon' => 'fa-circle-exclamation', 'label' => 'File Complaint'],
             'resident_emergency' => ['href' => 'emergency_report.php', 'icon' => 'fa-triangle-exclamation', 'label' => 'Report Emergency'],
+            'audit' => ['href' => 'audit.php', 'icon' => 'fa-clock-rotate-left', 'label' => 'My History'],
             'logout' => ['href' => 'logout.php', 'icon' => 'fa-right-from-bracket', 'label' => 'Logout'],
         ];
     } else {

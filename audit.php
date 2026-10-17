@@ -1,10 +1,10 @@
 <?php
 require_once __DIR__ . '/layout.php';
 
-if (($_SESSION['role'] ?? '') !== 'admin') {
-    header('Location: dashboard.php?denied=1');
-    exit;
-}
+$role = $_SESSION['role'] ?? '';
+$userId = (int)($_SESSION['user_id'] ?? 0);
+$scopeParams = [];
+$scopeTypes = '';
 
 $search = trim($_GET['search'] ?? '');
 $actionFilter = trim($_GET['action'] ?? '');
@@ -12,9 +12,44 @@ $entityFilter = trim($_GET['entity'] ?? '');
 $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 15;
 
-$where = [];
-$params = [];
-$types = '';
+$scopeWhere = '1 = 1';
+if ($role === 'staff') {
+    $scopeWhere = "a.entity IN ('residents', 'certificates', 'appointments', 'complaints')";
+} elseif ($role === 'health_worker') {
+    $scopeWhere = "a.entity = 'residents'";
+} elseif ($role === 'security_force') {
+    $scopeWhere = "a.entity = 'emergency_alerts'";
+} elseif ($role === 'resident') {
+    $scopeWhere = 'a.user_id = ?';
+    $scopeParams = [$userId];
+    $scopeTypes = 'i';
+
+    $resident = currentResident($conn);
+    if ($resident) {
+        $residentId = (int)$resident['id'];
+        $scopeWhere = "(a.user_id = ? OR (
+            (a.entity = 'certificates' AND EXISTS (
+                SELECT 1 FROM certificates c
+                WHERE c.id = a.related_id AND (c.resident_id = ? OR c.requested_by_user_id = ?)
+            )) OR
+            (a.entity = 'appointments' AND EXISTS (
+                SELECT 1 FROM appointments ap WHERE ap.id = a.related_id AND ap.resident_id = ?
+            )) OR
+            (a.entity = 'complaints' AND EXISTS (
+                SELECT 1 FROM complaints co WHERE co.id = a.related_id AND co.resident_id = ?
+            )) OR
+            (a.entity = 'emergency_alerts' AND EXISTS (
+                SELECT 1 FROM emergency_alerts ea WHERE ea.id = a.related_id AND ea.resident_id = ?
+            ))
+        ))";
+        $scopeParams = [$userId, $residentId, $userId, $residentId, $residentId, $residentId];
+        $scopeTypes = 'iiiiii';
+    }
+}
+
+$where = [$scopeWhere];
+$params = $scopeParams;
+$types = $scopeTypes;
 
 if ($search !== '') {
     $like = '%' . $search . '%';
@@ -32,7 +67,7 @@ if ($entityFilter !== '') {
     $params[] = $entityFilter;
     $types .= 's';
 }
-$whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+$whereSql = ' WHERE ' . implode(' AND ', $where);
 
 $countStmt = $conn->prepare('SELECT COUNT(*) FROM activity_logs a LEFT JOIN users u ON u.id = a.user_id' . $whereSql);
 if ($params) {
@@ -59,16 +94,44 @@ $stmt->execute();
 $logs = $stmt->get_result();
 $stmt->close();
 
-$actions = $conn->query("SELECT DISTINCT action FROM activity_logs WHERE action <> '' ORDER BY action ASC");
-$entities = $conn->query("SELECT DISTINCT entity FROM activity_logs WHERE entity <> '' ORDER BY entity ASC");
+$actionsStmt = $conn->prepare("SELECT DISTINCT a.action FROM activity_logs a WHERE $scopeWhere AND a.action <> '' ORDER BY a.action ASC");
+if ($scopeParams) {
+    bindPreparedParams($actionsStmt, $scopeTypes, $scopeParams);
+}
+$actionsStmt->execute();
+$actions = $actionsStmt->get_result();
+$actionsStmt->close();
+
+$entitiesStmt = $conn->prepare("SELECT DISTINCT a.entity FROM activity_logs a WHERE $scopeWhere AND a.entity <> '' ORDER BY a.entity ASC");
+if ($scopeParams) {
+    bindPreparedParams($entitiesStmt, $scopeTypes, $scopeParams);
+}
+$entitiesStmt->execute();
+$entities = $entitiesStmt->get_result();
+$entitiesStmt->close();
+
 $queryBase = ['search' => $search, 'action' => $actionFilter, 'entity' => $entityFilter];
+$historyTitle = match ($role) {
+    'admin' => 'Audit History',
+    'staff' => 'Request History',
+    'health_worker' => 'Resident History',
+    'security_force' => 'Emergency History',
+    default => 'My Request History',
+};
+$historySubtitle = match ($role) {
+    'admin' => 'Review account activity and changes across the system.',
+    'staff' => 'Review resident, certificate, appointment, and complaint activity.',
+    'health_worker' => 'Review activity on resident records available to your role.',
+    'security_force' => 'Review emergency report and response activity.',
+    default => 'Follow activity on your certificate, appointment, complaint, and emergency requests.',
+};
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <?php pageTitle('Audit History'); ?>
+    <?php pageTitle($historyTitle); ?>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
     <link rel="stylesheet" href="<?php echo asset('settings.css'); ?>">
@@ -77,7 +140,7 @@ $queryBase = ['search' => $search, 'action' => $actionFilter, 'entity' => $entit
 <div class="wrapper">
     <?php renderSidebar('audit', 'compact'); ?>
     <main class="main-content">
-        <?php renderTopbar('Audit History', 'Review account activity and changes across the system.', 'compact', ['clock' => true, 'dashboardHeader' => true]); ?>
+        <?php renderTopbar($historyTitle, $historySubtitle, 'compact', ['clock' => true, 'dashboardHeader' => true]); ?>
 
         <div class="content-card filter-card mb-4">
             <div class="card-header-custom">
@@ -125,7 +188,7 @@ $queryBase = ['search' => $search, 'action' => $actionFilter, 'entity' => $entit
                     </thead>
                     <tbody>
                         <?php if ($logs->num_rows === 0): ?>
-                            <tr><td colspan="5" class="text-center py-4 text-muted">No audit activity matches these filters.</td></tr>
+                            <tr><td colspan="5" class="text-center py-4 text-muted">No activity matches these filters.</td></tr>
                         <?php else: ?>
                             <?php while ($log = $logs->fetch_assoc()): ?>
                                 <tr>

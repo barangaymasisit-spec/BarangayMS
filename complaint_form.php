@@ -139,7 +139,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             $stmt->execute();
             $stmt->close();
-            logActivity($conn, 'updated', 'complaints', 'Updated complaint record.', $id);
+            $previousStatus = (string)($complaint['status'] ?? '');
+            $activityDetails = $previousStatus !== $values['status']
+                ? 'Complaint status changed from ' . $previousStatus . ' to ' . $values['status'] . '.'
+                : 'Updated complaint record.';
+            logActivity($conn, 'updated', 'complaints', $activityDetails, $id);
             header('Location: complaints.php?msg=updated');
             exit;
         } else {
@@ -157,7 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             $stmt->execute();
             $stmt->close();
-            logActivity($conn, 'created', 'complaints', 'Created complaint record.', $conn->insert_id);
+            logActivity($conn, 'created', 'complaints', 'Created complaint with status ' . $values['status'] . '.', $conn->insert_id);
             header('Location: ' . ($isResident ? 'resident_dashboard.php?msg=complaint_created' : 'complaints.php?msg=created'));
             exit;
         }

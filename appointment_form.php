@@ -109,7 +109,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             $stmt->execute();
             $stmt->close();
-            logActivity($conn, 'updated', 'appointments', 'Updated appointment record.', $id);
+            $previousStatus = (string)($appointment['status'] ?? '');
+            $activityDetails = $previousStatus !== $values['status']
+                ? 'Appointment status changed from ' . $previousStatus . ' to ' . $values['status'] . '.'
+                : 'Updated appointment record.';
+            logActivity($conn, 'updated', 'appointments', $activityDetails, $id);
             header('Location: appointments.php?msg=updated');
             exit;
         }
@@ -127,7 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
         $stmt->execute();
         $stmt->close();
-        logActivity($conn, 'created', 'appointments', 'Created appointment record.', $conn->insert_id);
+        logActivity($conn, 'created', 'appointments', 'Created appointment request with status ' . $values['status'] . '.', $conn->insert_id);
         header('Location: ' . ($isResident ? 'resident_dashboard.php?msg=appointment_created' : 'appointments.php?msg=created'));
         exit;
     }

@@ -130,7 +130,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             $stmt->execute();
             $stmt->close();
-            logActivity($conn, 'updated', 'certificates', 'Updated certificate request.', $id);
+            $previousStatus = (string)($certificate['status'] ?? '');
+            $activityDetails = $previousStatus !== $values['status']
+                ? 'Certificate request status changed from ' . $previousStatus . ' to ' . $values['status'] . '.'
+                : 'Updated certificate request.';
+            logActivity($conn, 'updated', 'certificates', $activityDetails, $id);
             header('Location: certificates.php?msg=updated');
             exit;
         }
@@ -150,7 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
         $stmt->execute();
         $stmt->close();
-        logActivity($conn, 'created', 'certificates', 'Created certificate request.', $conn->insert_id);
+        logActivity($conn, 'created', 'certificates', 'Created certificate request with status ' . $values['status'] . '.', $conn->insert_id);
         header('Location: ' . ($isResident ? 'resident_dashboard.php?msg=certificate_created' : 'certificates.php?msg=created'));
         exit;
     }
