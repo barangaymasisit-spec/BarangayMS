@@ -25,15 +25,8 @@ if ($id > 0) {
     }
 }
 
-// Delete: only for requests never issued; approved/released ones stay on record.
-$canDelete = $certificate && in_array($certificate['status'], ['Pending', 'Rejected'], true);
-if ($canDelete && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
-    $stmt = $conn->prepare('DELETE FROM certificates WHERE id = ?');
-    $stmt->bind_param('i', $id);
-    $stmt->execute();
-    $stmt->close();
-    logActivity($conn, 'deleted', 'certificates', 'Deleted certificate request.', $id);
-    header('Location: certificates.php?msg=deleted');
+if ($certificate && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
+    header('Location: certificates.php?msg=delete_disabled');
     exit;
 }
 
@@ -328,17 +321,6 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
                 </table>
 
                 <div class="record-actions">
-                    <?php if ($canDelete): ?>
-                    <form method="post" action="certificate_form.php?id=<?php echo $id; ?>" class="d-inline"
-                          onsubmit="return confirm('Delete this certificate request?');">
-                        <?php echo csrfField(); ?>
-                        <input type="hidden" name="action" value="delete">
-                        <button type="submit" class="btn-danger">
-                            <i class="fa-solid fa-trash" aria-hidden="true"></i>
-                            <span>Delete</span>
-                        </button>
-                    </form>
-                    <?php endif; ?>
                     <a href="certificates.php" class="btn-cancel">
                         <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
                         <span>Back to Certifications</span>

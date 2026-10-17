@@ -213,7 +213,7 @@ $activeFilters = [
             'status_only' => 'Certificate details are read-only. Change the request status from the certifications list.',
             'invalid_status' => 'The requested certificate status is invalid.',
             'no_change' => 'The certificate request already has that status.',
-            'deleted' => 'Certificate request deleted.',
+            'delete_disabled' => 'Certificate requests are retained for the barangay record and cannot be deleted.',
         ]);
         ?>
 
@@ -581,25 +581,7 @@ $activeFilters = [
 
                                             </a>
 
-                                            <?php if (in_array($row['status'], ['Pending', 'Rejected'], true)): ?>
-                                            <form
-                                                method="post"
-                                                action="certificate_form.php?id=<?php echo (int)$row['id']; ?>"
-                                                class="d-inline"
-                                                onsubmit="return confirm('Delete this certificate request?');">
-                                                <?php echo csrfField(); ?>
-                                                <input type="hidden" name="action" value="delete">
-                                                <button
-                                                    type="submit"
-                                                    class="btn-delete"
-                                                    title="Delete Request"
-                                                    aria-label="Delete certificate request">
-                                                    <i class="fa-solid fa-trash" aria-hidden="true"></i>
-                                                </button>
-                                            </form>
-                                            <?php endif; ?>
-
-                                        </div>
+                                            </div>
 
                                     </td>
 
