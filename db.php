@@ -876,11 +876,7 @@ function purgeDatabaseBackups(mysqli $conn): int {
     }
 
     $backupCount = (int)$conn->query('SELECT COUNT(*) FROM database_backups')->fetch_row()[0];
-    if ($backupCount === 0) {
-        return 0;
-    }
-
-    $conn->query('TRUNCATE TABLE database_backups');
+    $conn->query('DROP TABLE database_backups');
     return $backupCount;
 }
 
