@@ -7,6 +7,48 @@ $requestStatus = trim($_GET['requestStatus'] ?? '');
 $perPage = 10;
 $page = max(1, (int)($_GET['page'] ?? 1));
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_status') {
+    $certificateId = filter_var($_POST['certificate_id'] ?? null, FILTER_VALIDATE_INT);
+    $newStatus = trim((string)($_POST['status'] ?? ''));
+    $allowedStatuses = ['Pending', 'Approved', 'Released', 'Rejected'];
+
+    $returnParams = array_intersect_key($_GET, array_flip(['residentSearch', 'certificateType', 'requestStatus', 'page']));
+    $returnQuery = http_build_query($returnParams);
+    $returnUrl = 'certificates.php' . ($returnQuery === '' ? '?' : '?' . $returnQuery . '&');
+
+    if (!$certificateId || !in_array($newStatus, $allowedStatuses, true)) {
+        header('Location: ' . $returnUrl . 'msg=invalid_status', true, 303);
+        exit;
+    }
+
+    $stmt = $conn->prepare('SELECT status FROM certificates WHERE id = ?');
+    $stmt->bind_param('i', $certificateId);
+    $stmt->execute();
+    $currentRequest = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if (!$currentRequest) {
+        header('Location: ' . $returnUrl . 'msg=missing', true, 303);
+        exit;
+    }
+
+    $previousStatus = (string)$currentRequest['status'];
+    if ($previousStatus === $newStatus) {
+        header('Location: ' . $returnUrl . 'msg=no_change', true, 303);
+        exit;
+    }
+
+    $approvedDate = in_array($newStatus, ['Approved', 'Released'], true) ? date('Y-m-d') : null;
+    $stmt = $conn->prepare('UPDATE certificates SET status = ?, approved_date = ? WHERE id = ?');
+    $stmt->bind_param('ssi', $newStatus, $approvedDate, $certificateId);
+    $stmt->execute();
+    $stmt->close();
+    logActivity($conn, 'updated', 'certificates', 'Certificate request status changed from ' . $previousStatus . ' to ' . $newStatus . '.', $certificateId);
+
+    header('Location: ' . $returnUrl . 'msg=updated', true, 303);
+    exit;
+}
+
 $where = [];
 $params = [];
 $types = '';
@@ -167,7 +209,10 @@ $activeFilters = [
 
         renderNotice([
             'created' => 'Certificate request created.',
-            'updated' => 'Certificate request updated.',
+            'updated' => 'Certificate request status updated.',
+            'status_only' => 'Certificate details are read-only. Change the request status from the certifications list.',
+            'invalid_status' => 'The requested certificate status is invalid.',
+            'no_change' => 'The certificate request already has that status.',
             'deleted' => 'Certificate request deleted.',
         ]);
         ?>
@@ -498,13 +543,17 @@ $activeFilters = [
                                     <td><?php echo h($row['request_date']); ?></td>
 
                                     <td>
-
-                                        <span class="status <?php echo h(strtolower((string)$row['status'])); ?>">
-
-                                            <?php echo h($row['status']); ?>
-
-                                        </span>
-
+                                        <form class="certificate-status-form" method="post" action="certificates.php?<?php echo h(http_build_query(array_filter($activeFilters, fn($value) => $value !== '') + ['page' => $page])); ?>">
+                                            <?php echo csrfField(); ?>
+                                            <input type="hidden" name="action" value="update_status">
+                                            <input type="hidden" name="certificate_id" value="<?php echo (int)$row['id']; ?>">
+                                            <select name="status" class="certificate-status-select" aria-label="Status for certificate request <?php echo (int)$row['id']; ?>">
+                                                <?php foreach (['Pending', 'Approved', 'Released', 'Rejected'] as $statusOption): ?>
+                                                    <option value="<?php echo h($statusOption); ?>"<?php echo $row['status'] === $statusOption ? ' selected' : ''; ?>><?php echo h($statusOption); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <button type="submit" class="certificate-status-save">Save</button>
+                                        </form>
                                     </td>
 
                                     <td>
@@ -521,17 +570,7 @@ $activeFilters = [
 
                                             </a>
 
-                                            <a
-                                                href="certificate_form.php?id=<?php echo (int)$row['id']; ?>&amp;edit=1"
-                                                class="btn-edit"
-                                                title="Edit Request"
-                                                aria-label="Edit certificate request">
-
-                                                <i class="fa-solid fa-pen" aria-hidden="true"></i>
-
-                                            </a>
-
-                                            <a
+<a
                                                 href="<?php echo h(certificateGeneratorPage($row['certificate_type'])); ?>?id=<?php echo (int)$row['id']; ?>&type=<?php echo urlencode(strtolower(str_replace(' ', '_', $row['certificate_type']))); ?>"
                                                 target="_blank"
                                                 class="btn-print"

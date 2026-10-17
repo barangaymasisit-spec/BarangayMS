@@ -597,6 +597,48 @@ tbody tr:hover{
     color:#721C24;
 }
 
+.certificate-status-form{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    min-width:175px;
+}
+
+.certificate-status-select{
+    min-width:112px;
+    padding:9px 10px;
+    border:1px solid #cbd5e1;
+    border-radius:8px;
+    background:#fff;
+    color:#263449;
+    font:inherit;
+    font-size:13px;
+}
+
+.certificate-status-save{
+    padding:9px 11px;
+    border:0;
+    border-radius:8px;
+    background:#0B4A9E;
+    color:#fff;
+    font:inherit;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .2s, transform .2s;
+}
+
+.certificate-status-save:hover{
+    background:#08366f;
+    transform:translateY(-1px);
+}
+
+.certificate-status-select:focus-visible,
+.certificate-status-save:focus-visible{
+    outline:3px solid #90CAF9;
+    outline-offset:2px;
+}
+
 /* ===========================
    ACTION BUTTONS
 =========================== */

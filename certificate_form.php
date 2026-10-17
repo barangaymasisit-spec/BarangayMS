@@ -37,7 +37,17 @@ if ($canDelete && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? 
     exit;
 }
 
-$isEdit = $certificate && isset($_GET['edit']);
+if ($certificate && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Location: certificates.php?msg=status_only');
+    exit;
+}
+
+if ($certificate && isset($_GET['edit'])) {
+    header('Location: certificates.php?msg=status_only');
+    exit;
+}
+
+$isEdit = false;
 $isNew = !$certificate;
 
 $residents = $isResident
@@ -115,30 +125,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($values['request_date'] === '') {
         $error = 'Request date is required.';
     } else {
-        if ($certificate) {
-            $stmt = $conn->prepare('UPDATE certificates SET resident_id = ?, certificate_type = ?, status = ?, request_date = ?, approved_date = ?, purpose = ?, remarks = ? WHERE id = ?');
-            $stmt->bind_param(
-                'issssssi',
-                $residentId,
-                $values['certificate_type'],
-                $values['status'],
-                $values['request_date'],
-                $approvedDate,
-                $values['purpose'],
-                $values['remarks'],
-                $id
-            );
-            $stmt->execute();
-            $stmt->close();
-            $previousStatus = (string)($certificate['status'] ?? '');
-            $activityDetails = $previousStatus !== $values['status']
-                ? 'Certificate request status changed from ' . $previousStatus . ' to ' . $values['status'] . '.'
-                : 'Updated certificate request.';
-            logActivity($conn, 'updated', 'certificates', $activityDetails, $id);
-            header('Location: certificates.php?msg=updated');
-            exit;
-        }
-
         $stmt = $conn->prepare('INSERT INTO certificates (resident_id, requested_by_user_id, requester_relationship, certificate_type, status, request_date, approved_date, purpose, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
         $stmt->bind_param(
             'iisssssss',
@@ -342,10 +328,6 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
                 </table>
 
                 <div class="record-actions">
-                    <a href="certificate_form.php?id=<?php echo $id; ?>&amp;edit=1" class="btn-primary">
-                        <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
-                        <span>Edit</span>
-                    </a>
                     <?php if ($canDelete): ?>
                     <form method="post" action="certificate_form.php?id=<?php echo $id; ?>" class="d-inline"
                           onsubmit="return confirm('Delete this certificate request?');">
