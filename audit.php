@@ -14,7 +14,7 @@ $perPage = 15;
 
 $scopeWhere = '1 = 1';
 if ($role === 'staff') {
-    $scopeWhere = "a.entity IN ('residents', 'certificates', 'appointments', 'complaints')";
+    $scopeWhere = "a.entity IN ('residents', 'certificates', 'appointments', 'complaints', 'announcements')";
 } elseif ($role === 'health_worker') {
     $scopeWhere = "a.entity = 'residents'";
 } elseif ($role === 'security_force') {

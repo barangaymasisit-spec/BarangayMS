@@ -12,6 +12,7 @@ if (!isset($_SESSION['user_id'])) {
 
 $role = $_SESSION['role'] ?? '';
 $residentPages = ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'audit.php', 'logout.php'];
+$residentPages[] = 'announcements.php';
 if ($role === 'resident' && !in_array(basename($_SERVER['PHP_SELF']), $residentPages, true)) {
     header('Location: resident_dashboard.php');
     exit;
@@ -24,7 +25,7 @@ if (!in_array($role, ['admin', 'staff', 'health_worker', 'security_force', 'resi
 }
 
 $allRolePages = [
-    'dashboard.php', 'residents.php', 'resident_form.php', 'household.php', 'household_form.php', 'officials.php', 'audit.php',
+    'dashboard.php', 'residents.php', 'resident_form.php', 'household.php', 'household_form.php', 'officials.php', 'audit.php', 'announcements.php',
     'certificates.php', 'certificate_form.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php',
     'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'emergency.php', 'emergency_report.php', 'settings.php', 'logout.php', 'resident_dashboard.php',
 ];
@@ -34,11 +35,11 @@ $rolePages = [
     'staff' => [
         'dashboard.php', 'residents.php', 'resident_form.php',
         'certificates.php', 'certificate_form.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php',
-        'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'audit.php', 'logout.php',
+        'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'audit.php', 'announcements.php', 'logout.php',
     ],
-    'health_worker' => ['dashboard.php', 'residents.php', 'audit.php', 'logout.php'],
-    'security_force' => ['dashboard.php', 'emergency.php', 'audit.php', 'logout.php'],
-    'resident' => ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'audit.php', 'logout.php'],
+    'health_worker' => ['dashboard.php', 'residents.php', 'audit.php', 'announcements.php', 'logout.php'],
+    'security_force' => ['dashboard.php', 'emergency.php', 'audit.php', 'announcements.php', 'logout.php'],
+    'resident' => ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'audit.php', 'announcements.php', 'logout.php'],
 ];
 if (isset($rolePages[$role]) && !in_array(basename($_SERVER['PHP_SELF']), $rolePages[$role], true)) {
     header('Location: dashboard.php?denied=1');
@@ -103,12 +104,19 @@ function staffNotifications(mysqli $conn): array {
 }
 
 function notificationCount(mysqli $conn): int {
+    $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
+    $announcementStmt = $conn->prepare("SELECT COUNT(*) FROM announcements WHERE status = 'Published' AND (expires_at IS NULL OR expires_at >= ?)");
+    $announcementStmt->bind_param('s', $today);
+    $announcementStmt->execute();
+    $announcementCount = (int)$announcementStmt->get_result()->fetch_row()[0];
+    $announcementStmt->close();
+
     if (($_SESSION['role'] ?? '') !== 'resident') {
-        return array_sum(array_column(staffNotifications($conn), 'total')) + count(officialTermAlerts($conn));
+        return $announcementCount + array_sum(array_column(staffNotifications($conn), 'total')) + count(officialTermAlerts($conn));
     }
     $resident = currentResident($conn);
     if (!$resident) {
-        return 0;
+        return $announcementCount;
     }
     $residentId = (int)$resident['id'];
     $stmt = $conn->prepare("SELECT
@@ -120,12 +128,32 @@ function notificationCount(mysqli $conn): int {
     $stmt->execute();
     $count = (int)$stmt->get_result()->fetch_row()[0];
     $stmt->close();
-    return $count;
+    return $count + $announcementCount;
 }
 
 function notificationItems(mysqli $conn): array {
     $items = [];
     $role = $_SESSION['role'] ?? '';
+    $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
+    $announcementStmt = $conn->prepare("SELECT title, body FROM announcements WHERE status = 'Published' AND (expires_at IS NULL OR expires_at >= ?) ORDER BY published_at DESC, id DESC LIMIT 5");
+    $announcementStmt->bind_param('s', $today);
+    $announcementStmt->execute();
+    $announcements = $announcementStmt->get_result();
+    while ($announcement = $announcements->fetch_assoc()) {
+        $announcementBody = trim(strip_tags($announcement['body']));
+        preg_match('/^.{0,100}/us', $announcementBody, $excerptMatch);
+        $announcementExcerpt = $excerptMatch[0] ?? '';
+        if (strlen($announcementExcerpt) < strlen($announcementBody)) {
+            $announcementExcerpt .= '...';
+        }
+        $items[] = [
+            'icon' => 'fa-bullhorn',
+            'text' => 'Announcement: ' . $announcement['title'],
+            'detail' => $announcementExcerpt,
+            'href' => 'announcements.php',
+        ];
+    }
+    $announcementStmt->close();
 
     if ($role === 'resident') {
         $resident = currentResident($conn);
@@ -312,6 +340,7 @@ function sidebarLinks(): array {
         'residents'    => ['href' => 'residents.php',    'icon' => 'fa-users',                'label' => 'Residents'],
         'household'    => ['href' => 'household.php',    'icon' => 'fa-house-user',           'label' => 'Household'],
         'officials'    => ['href' => 'officials.php',    'icon' => 'fa-user-tie',             'label' => 'Officials'],
+        'announcements' => ['href' => 'announcements.php', 'icon' => 'fa-bullhorn',             'label' => 'Announcements'],
         'audit'        => ['href' => 'audit.php',         'icon' => 'fa-clock-rotate-left',    'label' => 'History'],
         'certificates' => ['href' => 'certificates.php', 'icon' => 'fa-file-lines',           'label' => 'Online Certification'],
         'complaints'   => ['href' => 'complaints.php',   'icon' => 'fa-circle-exclamation',   'label' => 'Complaints &amp; Alerts'],
@@ -325,9 +354,9 @@ function sidebarLinks(): array {
     if ($role === 'staff') {
         unset($links['household'], $links['officials'], $links['emergency'], $links['settings']);
     } elseif ($role === 'health_worker') {
-        $links = array_intersect_key($links, array_flip(['dashboard', 'residents', 'audit', 'logout']));
+        $links = array_intersect_key($links, array_flip(['dashboard', 'residents', 'audit', 'announcements', 'logout']));
     } elseif ($role === 'security_force') {
-        $links = array_intersect_key($links, array_flip(['dashboard', 'emergency', 'audit', 'logout']));
+        $links = array_intersect_key($links, array_flip(['dashboard', 'emergency', 'audit', 'announcements', 'logout']));
     }
 
     return $links;
@@ -348,6 +377,7 @@ function renderSidebar(string $activePage, string $variant = 'panel'): void {
             'resident_appointment' => ['href' => 'appointment_form.php', 'icon' => 'fa-calendar-check', 'label' => 'Book Appointment'],
             'resident_complaint' => ['href' => 'complaint_form.php', 'icon' => 'fa-circle-exclamation', 'label' => 'File Complaint'],
             'resident_emergency' => ['href' => 'emergency_report.php', 'icon' => 'fa-triangle-exclamation', 'label' => 'Report Emergency'],
+            'announcements' => ['href' => 'announcements.php', 'icon' => 'fa-bullhorn', 'label' => 'Announcements'],
             'audit' => ['href' => 'audit.php', 'icon' => 'fa-clock-rotate-left', 'label' => 'My History'],
             'logout' => ['href' => 'logout.php', 'icon' => 'fa-right-from-bracket', 'label' => 'Logout'],
         ];

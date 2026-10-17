@@ -954,6 +954,26 @@ function nextEmergencyTrackingNumber(mysqli $conn): string {
     return $prefix . str_pad((string)$next, 4, '0', STR_PAD_LEFT);
 }
 
+function ensureAnnouncementsTable(mysqli $conn): void {
+    $conn->query(
+        'CREATE TABLE IF NOT EXISTS announcements (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            title VARCHAR(200) NOT NULL,
+            body TEXT NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT \'Published\',
+            created_by INT UNSIGNED DEFAULT NULL,
+            published_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATE DEFAULT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_announcements_status_expiry (status, expires_at),
+            KEY idx_announcements_published_at (published_at),
+            KEY idx_announcements_created_by (created_by)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+    );
+}
+
 function runDatabaseMigration(callable $migration, string $name): void {
     set_error_handler(static function (int $level, string $message, string $file, int $line): never {
         throw new ErrorException($message, 0, $level, $file, $line);
@@ -977,6 +997,7 @@ function runDatabaseMigration(callable $migration, string $name): void {
 if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     runDatabaseMigration(static fn () => ensureActivityLogsTable($GLOBALS['conn']), 'activity_logs');
     runDatabaseMigration(static fn () => ensureEmergencyAlertsTable($GLOBALS['conn']), 'emergency_alerts');
+    runDatabaseMigration(static fn () => ensureAnnouncementsTable($GLOBALS['conn']), 'announcements');
     runDatabaseMigration(static fn () => ensureUserAccountColumns($GLOBALS['conn']), 'user account columns');
     runDatabaseMigration(static fn () => ensureCertificateRequesterColumns($GLOBALS['conn']), 'certificate requester columns');
     runDatabaseMigration(static fn () => migrateRegisteredVoterCategory($GLOBALS['conn']), 'registered voter migration');
