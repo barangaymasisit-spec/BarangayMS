@@ -870,6 +870,20 @@ function pruneDatabaseBackups(mysqli $conn, int $keepCount = AUTO_BACKUPS_KEPT):
     return $deletedCount;
 }
 
+function purgeDatabaseBackups(mysqli $conn): int {
+    if (!databaseTableExists($conn, 'database_backups')) {
+        return 0;
+    }
+
+    $backupCount = (int)$conn->query('SELECT COUNT(*) FROM database_backups')->fetch_row()[0];
+    if ($backupCount === 0) {
+        return 0;
+    }
+
+    $conn->query('TRUNCATE TABLE database_backups');
+    return $backupCount;
+}
+
 /** Create a dated backup at 5 PM Manila time only when database content changed. */
 function runScheduledBackup(mysqli $conn): bool {
     if ((int)date('G') < AUTO_BACKUP_HOUR) {
@@ -1038,11 +1052,14 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     runDatabaseMigration(static fn () => ensureActivityLogsTable($GLOBALS['conn']), 'activity_logs');
     runDatabaseMigration(static fn () => ensureEmergencyAlertsTable($GLOBALS['conn']), 'emergency_alerts');
     runDatabaseMigration(static function (): void {
-        $deletedBackups = pruneDatabaseBackups($GLOBALS['conn']);
-        if ($deletedBackups > 0) {
-            error_log(sprintf('Pruned %d old database backup(s); retaining the newest %d.', $deletedBackups, AUTO_BACKUPS_KEPT));
+        $conn = $GLOBALS['conn'];
+        if (!databaseTableExists($conn, 'announcements')) {
+            $deletedBackups = purgeDatabaseBackups($conn);
+            if ($deletedBackups > 0) {
+                error_log(sprintf('Purged %d database backup(s) to recover space for announcements.', $deletedBackups));
+            }
         }
-    }, 'old database backups');
+    }, 'database backup cleanup');
     runDatabaseMigration(static fn () => ensureAnnouncementsTable($GLOBALS['conn']), 'announcements');
     runDatabaseMigration(static fn () => ensureUserAccountColumns($GLOBALS['conn']), 'user account columns');
     runDatabaseMigration(static fn () => ensureCertificateRequesterColumns($GLOBALS['conn']), 'certificate requester columns');
