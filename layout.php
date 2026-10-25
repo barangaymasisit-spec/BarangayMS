@@ -313,7 +313,7 @@ function householdMembersSql(string $householdIdExpr): string {
 /**
  * Suggests known household heads while typing in $headInputId, and when one is
  * picked fills the household fields in $fieldIds (id, members, type, income => input id).
- * The optional family field displays the family group derived from the head's name.
+ * The optional family field selects an existing family or follows a newly entered head.
  */
 function householdHeadLookup(mysqli $conn, string $headInputId, array $fieldIds): void {
     $heads = [];
@@ -343,9 +343,9 @@ function householdHeadLookup(mysqli $conn, string $headInputId, array $fieldIds)
         const name = head.value.trim().toLowerCase();
         const match = Array.from(document.querySelectorAll('#householdHeadList option'))
             .find(o => o.value.toLowerCase() === name);
-        const familyInput = document.getElementById(fields.family || '');
-        if (familyInput) {
-            familyInput.value = head.value.trim() ? 'Family of ' + head.value.trim() : '';
+        const familySelect = document.getElementById(fields.family || '');
+        if (familySelect) {
+            familySelect.value = match ? match.value : '';
         }
         if (!match) return;
         for (const [key, inputId] of Object.entries(fields)) {
@@ -363,6 +363,23 @@ function householdHeadLookup(mysqli $conn, string $headInputId, array $fieldIds)
             membersInput.value = Number(match.dataset.members || 0) + (counts ? 1 : 0);
         }
     });
+    const familySelect = document.getElementById(fields.family || '');
+    if (familySelect) {
+        const headOptions = Array.from(document.querySelectorAll('#householdHeadList option'));
+        for (const headOption of headOptions) {
+            const option = document.createElement('option');
+            option.value = headOption.value;
+            option.textContent = 'Family of ' + headOption.value;
+            familySelect.appendChild(option);
+        }
+        const existingFamily = headOptions.find(o => o.value.toLowerCase() === head.value.trim().toLowerCase());
+        if (existingFamily) familySelect.value = existingFamily.value;
+        familySelect.addEventListener('change', function(){
+            if (!familySelect.value) return;
+            head.value = familySelect.value;
+            head.dispatchEvent(new Event('input'));
+        });
+    }
     const status = document.getElementById(fields.status || '');
     if (status) status.addEventListener('change', () => head.dispatchEvent(new Event('input')));
 })();

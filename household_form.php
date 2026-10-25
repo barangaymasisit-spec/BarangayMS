@@ -3,6 +3,7 @@ require_once __DIR__ . '/layout.php';
 
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $household = null;
+$householdResidents = [];
 $error = '';
 
 if ($id > 0) {
@@ -15,6 +16,48 @@ if ($id > 0) {
     if (!$household) {
         header('Location: household.php?msg=missing');
         exit;
+    }
+}
+
+if ($household) {
+    $membersStmt = $conn->prepare('SELECT id, resident_number, first_name, middle_name, last_name, suffix, household_head, relationship_head FROM residents WHERE household_id = ? ORDER BY last_name, first_name');
+    $membersStmt->bind_param('s', $household['household_number']);
+    $membersStmt->execute();
+    $householdResidents = $membersStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $membersStmt->close();
+}
+
+$residentFullName = static function (array $resident): string {
+    return trim(implode(' ', array_filter([
+        $resident['first_name'] ?? '',
+        $resident['middle_name'] ?? '',
+        $resident['last_name'] ?? '',
+        $resident['suffix'] ?? '',
+    ], static fn($part) => trim((string)$part) !== '')));
+};
+$memberById = [];
+foreach ($householdResidents as $householdResident) {
+    $memberById[(int)$householdResident['id']] = $householdResident;
+}
+$selectedHeadResidentId = 0;
+foreach ($householdResidents as $householdResident) {
+    if ($residentFullName($householdResident) === (string)($household['household_head'] ?? '')) {
+        $selectedHeadResidentId = (int)$householdResident['id'];
+        break;
+    }
+}
+$familyAssignments = [];
+$familyRoles = [];
+$familyHeads = [];
+$existingFamilyNames = [];
+foreach ($householdResidents as $householdResident) {
+    $currentFamilyName = trim((string)($householdResident['household_head'] ?? ''));
+    if ($currentFamilyName !== '') {
+        $existingFamilyNames[$currentFamilyName] = true;
+    }
+    $name = $residentFullName($householdResident);
+    if ($name !== '' && $currentFamilyName === $name) {
+        $familyHeads[(int)$householdResident['id']] = $name;
     }
 }
 
@@ -42,9 +85,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     foreach ($values as $field => $default) {
         $values[$field] = trim($_POST[$field] ?? '');
     }
-    $membersCount = $values['members_count'] === '' ? null : (int)$values['members_count'];
+    $membersCount = $household ? (int)($household['members_count'] ?? 0) : null;
+    $selectedHeadResidentId = max(0, (int)($_POST['household_head_resident_id'] ?? 0));
+    $familyAssignments = is_array($_POST['family_head'] ?? null) ? $_POST['family_head'] : [];
+    $familyRoles = is_array($_POST['family_role'] ?? null) ? $_POST['family_role'] : [];
 
-    if ($values['household_number'] === '') {
+    if ($household && $householdResidents !== []) {
+        if (!isset($memberById[$selectedHeadResidentId])) {
+            $error = 'Choose a household head from the residents linked to this household.';
+        } else {
+            $values['household_head'] = $residentFullName($memberById[$selectedHeadResidentId]);
+        }
+
+        foreach ($householdResidents as $householdResident) {
+            $residentId = (int)$householdResident['id'];
+            $familyHeadId = max(0, (int)($familyAssignments[$residentId] ?? 0));
+            if (!isset($memberById[$familyHeadId])) {
+                $error = 'Choose a family for every resident in this household.';
+                break;
+            }
+            if (trim((string)($familyRoles[$residentId] ?? '')) === '') {
+                $error = 'Enter a family role for every resident in this household.';
+                break;
+            }
+        }
+    }
+
+    if ($error !== '') {
+        // Keep the submitted form values visible so the selections can be corrected.
+    } elseif ($values['household_number'] === '') {
         $error = 'Household number is required.';
     } elseif ($values['household_head'] === '') {
         $error = 'Household head is required.';
@@ -60,24 +129,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($duplicate) {
             $error = 'That household number is already used by another record.';
         } elseif ($household) {
-            $stmt = $conn->prepare('UPDATE households SET household_number = ?, household_head = ?, members_count = ?, zone = ?, status = ?, household_type = ?, income_bracket = ?, address = ? WHERE id = ?');
-            $stmt->bind_param(
-                'ssisssssi',
-                $values['household_number'],
-                $values['household_head'],
-                $membersCount,
-                $values['zone'],
-                $values['status'],
-                $values['household_type'],
-                $values['income_bracket'],
-                $values['address'],
-                $id
-            );
-            $stmt->execute();
-            $stmt->close();
-            logActivity($conn, 'updated', 'households', 'Updated household record.', $id);
-            header('Location: household.php?msg=updated');
-            exit;
+            try {
+                $conn->begin_transaction();
+                $stmt = $conn->prepare('UPDATE households SET household_number = ?, household_head = ?, members_count = ?, zone = ?, status = ?, household_type = ?, income_bracket = ?, address = ? WHERE id = ?');
+                $stmt->bind_param(
+                    'ssisssssi',
+                    $values['household_number'],
+                    $values['household_head'],
+                    $membersCount,
+                    $values['zone'],
+                    $values['status'],
+                    $values['household_type'],
+                    $values['income_bracket'],
+                    $values['address'],
+                    $id
+                );
+                $stmt->execute();
+                $stmt->close();
+
+                if ($householdResidents !== []) {
+                    $memberUpdate = $conn->prepare('UPDATE residents SET household_id = ?, household_head = ?, relationship_head = ? WHERE id = ? AND household_id = ?');
+                    foreach ($householdResidents as $householdResident) {
+                        $residentId = (int)$householdResident['id'];
+                        $familyHeadId = (int)$familyAssignments[$residentId];
+                        $familyHeadName = $residentFullName($memberById[$familyHeadId]);
+                        $familyRole = trim((string)$familyRoles[$residentId]);
+                        $memberUpdate->bind_param('sssis', $values['household_number'], $familyHeadName, $familyRole, $residentId, $household['household_number']);
+                        $memberUpdate->execute();
+                    }
+                    $memberUpdate->close();
+                }
+
+                $conn->commit();
+                logActivity($conn, 'updated', 'households', 'Updated household record and family assignments.', $id);
+                header('Location: household.php?msg=updated');
+                exit;
+            } catch (Throwable $exception) {
+                $conn->rollback();
+                error_log('Household update failed: ' . $exception->getMessage());
+                $error = 'The household changes could not be saved. Please try again.';
+            }
         } else {
             $stmt = $conn->prepare('INSERT INTO households (household_number, household_head, members_count, zone, status, household_type, income_bracket, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->bind_param(
@@ -143,7 +234,20 @@ $statusOptions = ['Active', 'Archived'];
 
                         <div class="form-group">
                             <label for="household_head">Household Head *</label>
-                            <input type="text" id="household_head" name="household_head" value="<?php echo h($values['household_head']); ?>" required>
+                            <?php if ($householdResidents !== []): ?>
+                                <select id="household_head_resident_id" name="household_head_resident_id" required>
+                                    <option value="">Choose household head</option>
+                                    <?php foreach ($householdResidents as $householdResident): ?>
+                                        <?php $residentId = (int)$householdResident['id']; ?>
+                                        <option value="<?php echo $residentId; ?>"<?php echo $selectedHeadResidentId === $residentId ? ' selected' : ''; ?>>
+                                            <?php echo h($residentFullName($householdResident) . ' · ' . $householdResident['resident_number']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <small class="text-muted">Choose from residents linked to this household.</small>
+                            <?php else: ?>
+                                <input type="text" id="household_head" name="household_head" value="<?php echo h($values['household_head']); ?>" required>
+                            <?php endif; ?>
                         </div>
 
                         <div class="form-group">
@@ -188,6 +292,93 @@ $statusOptions = ['Active', 'Archived'];
                         </div>
 
                     </div>
+
+                    <?php if ($household && $householdResidents !== []): ?>
+                        <section class="household-family-manager" aria-labelledby="familyManagerHeading">
+                            <div class="household-family-manager-heading">
+                                <div>
+                                    <h3 id="familyManagerHeading">Family Management</h3>
+                                    <p><?php echo count($existingFamilyNames); ?> existing families · <?php echo count($householdResidents); ?> residents. Choose a family and role for each resident.</p>
+                                </div>
+                                <button class="btn-primary" type="button" id="addFamilyButton">
+                                    <i class="fa-solid fa-plus" aria-hidden="true"></i> Add Family
+                                </button>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="household-assignment-table">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Resident</th>
+                                            <th scope="col">Family</th>
+                                            <th scope="col">Family Role</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($householdResidents as $householdResident): ?>
+                                            <?php
+                                            $residentId = (int)$householdResident['id'];
+                                            $currentFamilyHeadId = 0;
+                                            foreach ($familyHeads as $familyHeadId => $familyHeadName) {
+                                                if ($familyHeadName === trim((string)($householdResident['household_head'] ?? ''))) {
+                                                    $currentFamilyHeadId = (int)$familyHeadId;
+                                                    break;
+                                                }
+                                            }
+                                            $selectedFamilyHeadId = (int)($familyAssignments[$residentId] ?? $currentFamilyHeadId);
+                                            $familyRole = (string)($familyRoles[$residentId] ?? $householdResident['relationship_head'] ?? '');
+                                            ?>
+                                            <tr>
+                                                <td>
+                                                    <strong><?php echo h($residentFullName($householdResident)); ?></strong>
+                                                    <small><?php echo h($householdResident['resident_number']); ?></small>
+                                                </td>
+                                                <td>
+                                                    <select name="family_head[<?php echo $residentId; ?>]" class="resident-family-select" data-resident-id="<?php echo $residentId; ?>" required>
+                                                        <option value="">Choose family</option>
+                                                        <optgroup label="Existing families">
+                                                            <?php foreach ($familyHeads as $familyHeadId => $familyHeadName): ?>
+                                                                <option value="<?php echo (int)$familyHeadId; ?>"<?php echo $selectedFamilyHeadId === (int)$familyHeadId ? ' selected' : ''; ?>>
+                                                                    <?php echo h('Family of ' . $familyHeadName); ?>
+                                                                </option>
+                                                            <?php endforeach; ?>
+                                                        </optgroup>
+                                                        <optgroup label="Start a family with">
+                                                            <?php foreach ($householdResidents as $candidate): ?>
+                                                                <?php if (isset($familyHeads[(int)$candidate['id']])) continue; ?>
+                                                                <option value="<?php echo (int)$candidate['id']; ?>"<?php echo $selectedFamilyHeadId === (int)$candidate['id'] ? ' selected' : ''; ?>>
+                                                                    <?php echo h($residentFullName($candidate)); ?>
+                                                                </option>
+                                                            <?php endforeach; ?>
+                                                        </optgroup>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <input type="text" name="family_role[<?php echo $residentId; ?>]" value="<?php echo h($familyRole); ?>" placeholder="e.g. Spouse, Child, Family Head" required>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <dialog class="add-family-dialog" id="addFamilyDialog" aria-labelledby="addFamilyHeading">
+                            <h3 id="addFamilyHeading">Add a family</h3>
+                            <p>Choose the resident who will lead this family group.</p>
+                            <label for="newFamilyHead">Family Head</label>
+                            <select id="newFamilyHead">
+                                <option value="">Choose a resident</option>
+                                <?php foreach ($householdResidents as $candidate): ?>
+                                    <option value="<?php echo (int)$candidate['id']; ?>"><?php echo h($residentFullName($candidate)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="record-actions">
+                                <button type="button" class="btn-primary" id="confirmAddFamily">Add Family</button>
+                                <button type="button" class="btn-cancel" id="cancelAddFamily">Cancel</button>
+                            </div>
+                        </dialog>
+                    <?php endif; ?>
 
                     <div class="record-actions">
                         <button type="submit" class="btn-primary">
@@ -238,5 +429,40 @@ $statusOptions = ['Active', 'Archived'];
     </main>
 </div>
 <?php renderFooterScripts(false); ?>
+<?php if ($household && $householdResidents !== []): ?>
+<script>
+(function(){
+    const dialog = document.getElementById('addFamilyDialog');
+    const addButton = document.getElementById('addFamilyButton');
+    const confirmButton = document.getElementById('confirmAddFamily');
+    const cancelButton = document.getElementById('cancelAddFamily');
+    const headPicker = document.getElementById('newFamilyHead');
+
+    addButton.addEventListener('click', () => dialog.showModal());
+    cancelButton.addEventListener('click', () => dialog.close());
+    confirmButton.addEventListener('click', function(){
+        const residentId = headPicker.value;
+        if (!residentId) {
+            headPicker.focus();
+            return;
+        }
+        const familySelect = document.querySelector('.resident-family-select[data-resident-id="' + residentId + '"]');
+        if (!familySelect) return;
+        familySelect.value = residentId;
+        familySelect.dispatchEvent(new Event('change', { bubbles: true }));
+        dialog.close();
+        headPicker.value = '';
+    });
+
+    document.querySelectorAll('.resident-family-select').forEach(function(select){
+        select.addEventListener('change', function(){
+            if (select.value !== select.dataset.residentId) return;
+            const roleInput = select.closest('tr').querySelector('input[name^="family_role["]');
+            if (roleInput) roleInput.value = 'Family Head';
+        });
+    });
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>

@@ -354,7 +354,9 @@ $generatedResidentNumber = nextResidentNumber($conn);
 
                             <div>
                                 <label for="familyGroup">Family</label>
-                                <input type="text" id="familyGroup" readonly>
+                                <select id="familyGroup">
+                                    <option value="">Select an existing family or enter a new head</option>
+                                </select>
                             </div>
 
                             <div>

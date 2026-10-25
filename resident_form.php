@@ -457,7 +457,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </div>
                                 <div>
                                     <label for="family_group">Family</label>
-                                    <input type="text" id="family_group" value="<?php echo !empty($resident['household_head']) ? h('Family of ' . $resident['household_head']) : ''; ?>" readonly>
+                                    <select id="family_group">
+                                        <option value="">Select an existing family or enter a new head</option>
+                                    </select>
                                 </div>
                                 <div>
                                     <label for="relationship_head">Relationship to Head</label>
