@@ -95,10 +95,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Choose a household head from the residents linked to this household.';
         } else {
             $values['household_head'] = $residentFullName($memberById[$selectedHeadResidentId]);
+            $familyAssignments[$selectedHeadResidentId] = $selectedHeadResidentId;
+            $familyRoles[$selectedHeadResidentId] = 'Family Head';
         }
 
         foreach ($householdResidents as $householdResident) {
             $residentId = (int)$householdResident['id'];
+            if ($residentId === $selectedHeadResidentId) {
+                continue;
+            }
             $familyHeadId = max(0, (int)($familyAssignments[$residentId] ?? 0));
             if (!isset($memberById[$familyHeadId])) {
                 $error = 'Choose a family for every resident in this household.';
@@ -151,9 +156,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $memberUpdate = $conn->prepare('UPDATE residents SET household_id = ?, household_head = ?, relationship_head = ? WHERE id = ? AND household_id = ?');
                     foreach ($householdResidents as $householdResident) {
                         $residentId = (int)$householdResident['id'];
-                        $familyHeadId = (int)$familyAssignments[$residentId];
+                        $familyHeadId = $residentId === $selectedHeadResidentId
+                            ? $selectedHeadResidentId
+                            : (int)$familyAssignments[$residentId];
                         $familyHeadName = $residentFullName($memberById[$familyHeadId]);
-                        $familyRole = trim((string)$familyRoles[$residentId]);
+                        $familyRole = $residentId === $selectedHeadResidentId
+                            ? 'Family Head'
+                            : trim((string)$familyRoles[$residentId]);
                         $memberUpdate->bind_param('sssis', $values['household_number'], $familyHeadName, $familyRole, $residentId, $household['household_number']);
                         $memberUpdate->execute();
                     }
@@ -298,7 +307,7 @@ $statusOptions = ['Active', 'Archived'];
                             <div class="household-family-manager-heading">
                                 <div>
                                     <h3 id="familyManagerHeading">Family Management</h3>
-                                    <p><?php echo count($existingFamilyNames); ?> existing families · <?php echo count($householdResidents); ?> residents. Choose a family and role for each resident.</p>
+                                    <p><?php echo count($existingFamilyNames); ?> existing families · <?php echo count($householdResidents); ?> residents. The household head is automatically Family 1; assign the other residents below.</p>
                                 </div>
                                 <button class="btn-primary" type="button" id="addFamilyButton">
                                     <i class="fa-solid fa-plus" aria-hidden="true"></i> Add Family
@@ -328,7 +337,7 @@ $statusOptions = ['Active', 'Archived'];
                                             $selectedFamilyHeadId = (int)($familyAssignments[$residentId] ?? $currentFamilyHeadId);
                                             $familyRole = (string)($familyRoles[$residentId] ?? $householdResident['relationship_head'] ?? '');
                                             ?>
-                                            <tr>
+                                            <tr class="resident-assignment-row" data-resident-row-id="<?php echo $residentId; ?>">
                                                 <td>
                                                     <strong><?php echo h($residentFullName($householdResident)); ?></strong>
                                                     <small><?php echo h($householdResident['resident_number']); ?></small>
@@ -437,6 +446,25 @@ $statusOptions = ['Active', 'Archived'];
     const confirmButton = document.getElementById('confirmAddFamily');
     const cancelButton = document.getElementById('cancelAddFamily');
     const headPicker = document.getElementById('newFamilyHead');
+    const householdHeadPicker = document.getElementById('household_head_resident_id');
+    const rows = Array.from(document.querySelectorAll('.resident-assignment-row'));
+
+    function syncHouseholdHeadRow(){
+        if (!householdHeadPicker) return;
+        const headId = householdHeadPicker.value;
+        rows.forEach(function(row){
+            const isHouseholdHead = row.dataset.residentRowId === headId;
+            row.hidden = isHouseholdHead;
+            if (!isHouseholdHead) return;
+            const familySelect = row.querySelector('.resident-family-select');
+            const roleInput = row.querySelector('input[name^="family_role["]');
+            if (familySelect) familySelect.value = headId;
+            if (roleInput) roleInput.value = 'Family Head';
+        });
+        Array.from(headPicker.options).forEach(function(option){
+            option.disabled = option.value === headId;
+        });
+    }
 
     addButton.addEventListener('click', () => dialog.showModal());
     cancelButton.addEventListener('click', () => dialog.close());
@@ -461,6 +489,10 @@ $statusOptions = ['Active', 'Archived'];
             if (roleInput) roleInput.value = 'Family Head';
         });
     });
+    if (householdHeadPicker) {
+        householdHeadPicker.addEventListener('change', syncHouseholdHeadRow);
+        syncHouseholdHeadRow();
+    }
 })();
 </script>
 <?php endif; ?>
