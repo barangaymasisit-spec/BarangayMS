@@ -7,15 +7,8 @@ $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 10;
 $isHealthWorker = ($_SESSION['role'] ?? '') === 'health_worker';
 
-// Handle delete action
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true) && ($_POST['action'] ?? '') === 'delete' && isset($_POST['id'])) {
-    $delId = (int)$_POST['id'];
-    $stmt = $conn->prepare('DELETE FROM residents WHERE id = ?');
-    $stmt->bind_param('i', $delId);
-    $stmt->execute();
-    $stmt->close();
-    logActivity($conn, 'deleted', 'residents', 'Deleted resident record.', $delId);
-    header('Location: residents.php?msg=deleted');
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
+    header('Location: residents.php?msg=delete_disabled');
     exit;
 }
 
@@ -104,7 +97,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
         <?php renderNotice([
             'created' => 'Resident record created.',
             'updated' => 'Resident record updated.',
-            'deleted' => 'Resident record deleted.',
+            'delete_disabled' => 'Deleting resident records is disabled. You can view or edit the record instead.',
         ]); ?>
 
         <?php if (in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true)): ?>
@@ -322,26 +315,6 @@ $generatedResidentNumber = nextResidentNumber($conn);
                             </div>
 
                             <div>
-                                <label for="barangay">Barangay</label>
-                                <input type="text" id="barangay" name="barangay">
-                            </div>
-
-                            <div>
-                                <label for="municipality">Municipality / City</label>
-                                <input type="text" id="municipality" name="municipality">
-                            </div>
-
-                            <div>
-                                <label for="province">Province</label>
-                                <input type="text" id="province" name="province">
-                            </div>
-
-                            <div>
-                                <label for="zipCode">ZIP Code</label>
-                                <input type="text" id="zipCode" name="zipCode">
-                            </div>
-
-                            <div>
                                 <label for="lengthResidency">Length of Residency</label>
                                 <input type="text" id="lengthResidency" name="lengthResidency">
                             </div>
@@ -374,8 +347,14 @@ $generatedResidentNumber = nextResidentNumber($conn);
                             </div>
 
                             <div>
-                                <label for="householdHead">Household Head</label>
+                                <label for="householdHead">Household Head / Family Head</label>
                                 <input type="text" id="householdHead" name="householdHead">
+                                <small class="field-help">Residents with the same household head are grouped as one family.</small>
+                            </div>
+
+                            <div>
+                                <label for="familyGroup">Family</label>
+                                <input type="text" id="familyGroup" readonly>
                             </div>
 
                             <div>
@@ -794,7 +773,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
                                 <th scope="col">Mobile</th>
                                 <th scope="col">Email</th>
                             <?php endif; ?>
-                            <th scope="col">Actions</th>
+                            <th scope="col">View / Edit</th>
                         </tr>
                     </thead>
 
@@ -823,13 +802,23 @@ $generatedResidentNumber = nextResidentNumber($conn);
                                         <td><?php echo h($resident['email']); ?></td>
                                     <?php endif; ?>
                                     <td>
-                                        <div class="action-group">
+                                        <div class="action-group resident-action-group">
+                                            <a href="<?php echo h('resident_view.php?' . http_build_query([
+                                                'id' => (int)$resident['id'],
+                                                'search' => $search,
+                                                'status_filter' => $statusFilter,
+                                                'page' => $page,
+                                            ])); ?>" class="btn-view resident-action-link" title="View Resident" aria-label="View resident record">View</a>
                                             <?php if (in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true)): ?>
-                                                <a href="resident_form.php?id=<?php echo (int)$resident['id']; ?>" class="btn-view" title="View Resident" aria-label="View resident record"><i class="fa-solid fa-eye" aria-hidden="true"></i></a>
-                                                <a href="resident_form.php?id=<?php echo (int)$resident['id']; ?>&amp;edit=1" class="btn-edit" title="Edit Resident" aria-label="Edit resident record"><i class="fa-solid fa-pen" aria-hidden="true"></i></a>
-                                                <form action="residents.php" method="post" class="d-inline" onsubmit="return confirm('Delete this resident?');"><?php echo csrfField(); ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int)$resident['id']; ?>"><button type="submit" class="btn-delete" title="Delete Resident" aria-label="Delete resident record"><i class="fa-solid fa-trash" aria-hidden="true"></i></button></form>
+                                                <a href="<?php echo h('resident_form.php?' . http_build_query([
+                                                    'id' => (int)$resident['id'],
+                                                    'edit' => 1,
+                                                    'search' => $search,
+                                                    'status_filter' => $statusFilter,
+                                                    'page' => $page,
+                                                ])); ?>" class="btn-edit resident-action-link" title="Edit Resident" aria-label="Edit resident record">Edit</a>
                                             <?php else: ?>
-                                                <span class="text-muted">Read only</span>
+                                                <a href="javascript:void(0)" class="btn-edit resident-action-link disabled" aria-disabled="true" title="Editing is not available">Edit</a>
                                             <?php endif; ?>
 
                                         </div>
@@ -845,17 +834,23 @@ $generatedResidentNumber = nextResidentNumber($conn);
             </div>
 
             <?php if ($totalResidentsCount > $perPage): ?>
-                <div class="pagination-wrap" style="margin-top: 16px; display:flex; justify-content: space-between; align-items:center; gap:12px; flex-wrap:wrap;">
-                    <div class="text-muted">Page <?php echo (int)$page; ?> of <?php echo (int)$totalPages; ?></div>
-                    <div class="btn-group">
+                <nav class="residents-pagination" aria-label="Resident pages">
+                    <span class="residents-page-status">Page <?php echo (int)$page; ?> of <?php echo (int)$totalPages; ?></span>
+                    <div class="residents-pagination-actions">
                         <?php if ($page > 1): ?>
-                            <a class="btn btn-sm btn-outline-secondary" href="residents.php?search=<?php echo urlencode($search); ?>&status_filter=<?php echo urlencode($statusFilter); ?>&page=<?php echo (int)($page - 1); ?>">Previous</a>
+                            <a class="residents-page-button" href="residents.php?search=<?php echo urlencode($search); ?>&status_filter=<?php echo urlencode($statusFilter); ?>&page=<?php echo (int)($page - 1); ?>">
+                                <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+                                <span>Previous</span>
+                            </a>
                         <?php endif; ?>
                         <?php if ($page < $totalPages): ?>
-                            <a class="btn btn-sm btn-outline-secondary" href="residents.php?search=<?php echo urlencode($search); ?>&status_filter=<?php echo urlencode($statusFilter); ?>&page=<?php echo (int)($page + 1); ?>">Next</a>
+                            <a class="residents-page-button" href="residents.php?search=<?php echo urlencode($search); ?>&status_filter=<?php echo urlencode($statusFilter); ?>&page=<?php echo (int)($page + 1); ?>">
+                                <span>Next</span>
+                                <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+                            </a>
                         <?php endif; ?>
                     </div>
-                </div>
+                </nav>
             <?php endif; ?>
 
         </section>
@@ -865,7 +860,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
 </div>
 
 <?php renderFooterScripts(false); ?>
-<?php householdHeadLookup($conn, 'householdHead', ['id' => 'householdId', 'members' => 'householdMembers', 'type' => 'householdType', 'income' => 'incomeBracket', 'status' => 'residentStatus']); ?>
+<?php householdHeadLookup($conn, 'householdHead', ['id' => 'householdId', 'members' => 'householdMembers', 'type' => 'householdType', 'income' => 'incomeBracket', 'status' => 'residentStatus', 'family' => 'familyGroup']); ?>
 
 </body>
 

@@ -213,7 +213,8 @@ $activeFilters = [
             'status_only' => 'Certificate details are read-only. Change the request status from the certifications list.',
             'invalid_status' => 'The requested certificate status is invalid.',
             'no_change' => 'The certificate request already has that status.',
-            'delete_disabled' => 'Certificate requests are retained for the barangay record and cannot be deleted.',
+            'missing' => 'The certificate request could not be found.',
+            'delete_disabled' => 'Deleting certificate requests is disabled. You can view the record or change its status.',
         ]);
         ?>
 
@@ -561,27 +562,16 @@ $activeFilters = [
                                         <div class="action-group">
 
                                             <a
-                                                href="certificate_form.php?id=<?php echo (int)$row['id']; ?>"
+                                                href="<?php echo h(certificateGeneratorPage($row['certificate_type']) . '?' . http_build_query(['id' => (int)$row['id'], 'type' => strtolower(str_replace(' ', '_', $row['certificate_type']))])); ?>"
                                                 class="btn-view"
-                                                title="View Request"
-                                                aria-label="View certificate request">
+                                                title="View Certificate"
+                                                aria-label="View the rendered certificate">
 
                                                 <i class="fa-solid fa-eye" aria-hidden="true"></i>
 
                                             </a>
 
-<a
-                                                href="<?php echo h(certificateGeneratorPage($row['certificate_type'])); ?>?id=<?php echo (int)$row['id']; ?>&type=<?php echo urlencode(strtolower(str_replace(' ', '_', $row['certificate_type']))); ?>"
-                                                target="_blank"
-                                                class="btn-print"
-                                                title="Print Certificate"
-                                                aria-label="Print certificate">
-
-                                                <i class="fa-solid fa-print" aria-hidden="true"></i>
-
-                                            </a>
-
-                                            </div>
+                                        </div>
 
                                     </td>
 

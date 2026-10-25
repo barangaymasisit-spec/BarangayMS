@@ -10,6 +10,32 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+$currentUserId = (int)$_SESSION['user_id'];
+if (($_SESSION['role'] ?? '') === 'admin') {
+    $adminSessionToken = (string)($_SESSION['admin_session_token'] ?? '');
+    if ($adminSessionToken === '') {
+        $adminSessionToken = bin2hex(random_bytes(32));
+        $ownsAdminSession = claimAdminSessionLock($conn, $currentUserId, $adminSessionToken);
+        if ($ownsAdminSession) {
+            $_SESSION['admin_session_token'] = $adminSessionToken;
+        }
+    } else {
+        $ownsAdminSession = refreshAdminSessionLock($conn, $currentUserId, $adminSessionToken);
+    }
+
+    if (!$ownsAdminSession) {
+        clearPersistentAuthCookie();
+        unset($_COOKIE['BARANGAY_AUTH']);
+        $_SESSION = [];
+        session_destroy();
+        header('Location: auth.php?admin_session=1');
+        exit;
+    }
+} elseif (!empty($_SESSION['admin_session_token'])) {
+    releaseAdminSessionLock($conn, $currentUserId, (string)$_SESSION['admin_session_token']);
+    unset($_SESSION['admin_session_token']);
+}
+
 $role = $_SESSION['role'] ?? '';
 $residentPages = ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'audit.php', 'logout.php'];
 $residentPages[] = 'announcements.php';
@@ -18,6 +44,9 @@ if ($role === 'resident' && !in_array(basename($_SERVER['PHP_SELF']), $residentP
     exit;
 }
 if (!in_array($role, ['admin', 'staff', 'health_worker', 'security_force', 'resident'], true)) {
+    if (!empty($_SESSION['admin_session_token'])) {
+        releaseAdminSessionLock($conn, $currentUserId, (string)$_SESSION['admin_session_token']);
+    }
     $_SESSION = [];
     session_destroy();
     header('Location: auth.php?denied=1');
@@ -25,7 +54,7 @@ if (!in_array($role, ['admin', 'staff', 'health_worker', 'security_force', 'resi
 }
 
 $allRolePages = [
-    'dashboard.php', 'residents.php', 'resident_form.php', 'household.php', 'household_form.php', 'officials.php', 'audit.php', 'announcements.php',
+    'dashboard.php', 'residents.php', 'resident_form.php', 'resident_view.php', 'record_view.php', 'household.php', 'household_form.php', 'officials.php', 'audit.php', 'announcements.php',
     'certificates.php', 'certificate_form.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php',
     'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'emergency.php', 'emergency_report.php', 'settings.php', 'logout.php', 'resident_dashboard.php',
 ];
@@ -33,12 +62,12 @@ $allRolePages = [
 $rolePages = [
     'admin' => $allRolePages,
     'staff' => [
-        'dashboard.php', 'residents.php', 'resident_form.php',
+        'dashboard.php', 'residents.php', 'resident_form.php', 'resident_view.php', 'record_view.php',
         'certificates.php', 'certificate_form.php', 'certificate_generate.php', 'indigency.php', 'residency.php', 'barangay_clearance.php', 'business.php', 'good_moral.php',
         'complaints.php', 'complaint_form.php', 'appointments.php', 'appointment_form.php', 'audit.php', 'announcements.php', 'logout.php',
     ],
-    'health_worker' => ['dashboard.php', 'residents.php', 'audit.php', 'announcements.php', 'logout.php'],
-    'security_force' => ['dashboard.php', 'emergency.php', 'audit.php', 'announcements.php', 'logout.php'],
+    'health_worker' => ['dashboard.php', 'residents.php', 'resident_view.php', 'audit.php', 'announcements.php', 'logout.php'],
+    'security_force' => ['dashboard.php', 'emergency.php', 'record_view.php', 'audit.php', 'announcements.php', 'logout.php'],
     'resident' => ['resident_dashboard.php', 'certificate_form.php', 'appointment_form.php', 'complaint_form.php', 'emergency_report.php', 'audit.php', 'announcements.php', 'logout.php'],
 ];
 if (isset($rolePages[$role]) && !in_array(basename($_SERVER['PHP_SELF']), $rolePages[$role], true)) {
@@ -103,12 +132,30 @@ function staffNotifications(mysqli $conn): array {
     return $items;
 }
 
+function announcementAudienceFilter(string $role, ?array $resident): array {
+    if ($role === 'resident') {
+        return [
+            "(a.audience = 'all_residents' OR (a.audience = 'purok' AND a.target_purok = ?))",
+            [trim((string)($resident['purok'] ?? ''))],
+            's',
+        ];
+    }
+    if ($role !== 'admin') {
+        return ["(a.audience = 'all_residents' OR (a.audience = 'staff' AND FIND_IN_SET(?, a.target_roles) > 0))", [$role], 's'];
+    }
+    return ['1 = 1', [], ''];
+}
+
 function notificationCount(mysqli $conn): int {
     $announcementCount = 0;
     if (databaseTableExists($conn, 'announcements')) {
-        $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
-        $announcementStmt = $conn->prepare("SELECT COUNT(*) FROM announcements WHERE status = 'Published' AND (expires_at IS NULL OR expires_at >= ?)");
-        $announcementStmt->bind_param('s', $today);
+        $role = (string)($_SESSION['role'] ?? '');
+        $resident = $role === 'resident' ? currentResident($conn) : null;
+        [$audienceSql, $audienceParams, $audienceTypes] = announcementAudienceFilter($role, $resident);
+        $announcementStmt = $conn->prepare("SELECT COUNT(*) FROM announcements a WHERE a.status = 'Active' AND $audienceSql");
+        if ($audienceParams) {
+            bindPreparedParams($announcementStmt, $audienceTypes, $audienceParams);
+        }
         $announcementStmt->execute();
         $announcementCount = (int)$announcementStmt->get_result()->fetch_row()[0];
         $announcementStmt->close();
@@ -122,12 +169,13 @@ function notificationCount(mysqli $conn): int {
         return $announcementCount;
     }
     $residentId = (int)$resident['id'];
+    $userId = (int)($_SESSION['user_id'] ?? 0);
     $stmt = $conn->prepare("SELECT
-        (SELECT COUNT(*) FROM certificates WHERE resident_id = ? AND status IN ('Approved', 'Released')) +
-        (SELECT COUNT(*) FROM appointments WHERE resident_id = ? AND status = 'Approved') +
-        (SELECT COUNT(*) FROM complaints WHERE resident_id = ? AND status IN ('Ongoing', 'Resolved')) +
+        (SELECT COUNT(*) FROM certificates WHERE (resident_id = ? OR requested_by_user_id = ?) AND status IN ('Approved', 'Released')) +
+        (SELECT COUNT(*) FROM appointments WHERE (resident_id = ? OR requested_by_user_id = ?) AND status = 'Approved') +
+        (SELECT COUNT(*) FROM complaints WHERE (resident_id = ? OR complainee_resident_id = ?) AND status IN ('Ongoing', 'Resolved')) +
         (SELECT COUNT(*) FROM emergency_alerts WHERE status = 'Active')");
-    $stmt->bind_param('iii', $residentId, $residentId, $residentId);
+    $stmt->bind_param('iiiiii', $residentId, $userId, $residentId, $userId, $residentId, $residentId);
     $stmt->execute();
     $count = (int)$stmt->get_result()->fetch_row()[0];
     $stmt->close();
@@ -138,9 +186,12 @@ function notificationItems(mysqli $conn): array {
     $items = [];
     $role = $_SESSION['role'] ?? '';
     if (databaseTableExists($conn, 'announcements')) {
-        $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
-        $announcementStmt = $conn->prepare("SELECT title, body FROM announcements WHERE status = 'Published' AND (expires_at IS NULL OR expires_at >= ?) ORDER BY published_at DESC, id DESC LIMIT 5");
-        $announcementStmt->bind_param('s', $today);
+        $resident = $role === 'resident' ? currentResident($conn) : null;
+        [$audienceSql, $audienceParams, $audienceTypes] = announcementAudienceFilter((string)$role, $resident);
+        $announcementStmt = $conn->prepare("SELECT a.title, a.body FROM announcements a WHERE a.status = 'Active' AND $audienceSql ORDER BY a.published_at DESC, a.id DESC LIMIT 5");
+        if ($audienceParams) {
+            bindPreparedParams($announcementStmt, $audienceTypes, $audienceParams);
+        }
         $announcementStmt->execute();
         $announcements = $announcementStmt->get_result();
         while ($announcement = $announcements->fetch_assoc()) {
@@ -162,43 +213,43 @@ function notificationItems(mysqli $conn): array {
 
     if ($role === 'resident') {
         $resident = currentResident($conn);
-        if (!$resident) {
-            return [];
-        }
-        $residentId = (int)$resident['id'];
-        $alerts = $conn->query("SELECT category, description FROM emergency_alerts WHERE status = 'Active' ORDER BY created_at DESC LIMIT 5");
-        while ($row = $alerts->fetch_assoc()) {
-            $items[] = ['icon' => 'fa-triangle-exclamation', 'text' => 'Emergency alert: ' . $row['category'], 'detail' => $row['description'], 'href' => 'resident_dashboard.php'];
-        }
-        $userId = (int)($_SESSION['user_id'] ?? 0);
-        $stmt = $conn->prepare("SELECT certificate_type, status FROM certificates WHERE (resident_id = ? OR requested_by_user_id = ?) AND status IN ('Approved', 'Released') ORDER BY updated_at DESC LIMIT 5");
-        $stmt->bind_param('ii', $residentId, $userId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        while ($row = $result->fetch_assoc()) {
-            $items[] = ['icon' => 'fa-file-lines', 'text' => 'Certificate ' . ($row['status'] === 'Released' ? 'released' : 'approved'), 'detail' => $row['certificate_type'] ?: 'Certificate request', 'href' => 'certificate_form.php'];
-        }
-        $stmt->close();
+        if ($resident) {
+            $residentId = (int)$resident['id'];
+            $alerts = $conn->query("SELECT category, description FROM emergency_alerts WHERE status = 'Active' ORDER BY created_at DESC LIMIT 5");
+            while ($row = $alerts->fetch_assoc()) {
+                $items[] = ['icon' => 'fa-triangle-exclamation', 'text' => 'Emergency alert: ' . $row['category'], 'detail' => $row['description'], 'href' => 'resident_dashboard.php'];
+            }
+            $userId = (int)($_SESSION['user_id'] ?? 0);
+            $stmt = $conn->prepare("SELECT certificate_type, status FROM certificates WHERE (resident_id = ? OR requested_by_user_id = ?) AND status IN ('Approved', 'Released') ORDER BY updated_at DESC LIMIT 5");
+            $stmt->bind_param('ii', $residentId, $userId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            while ($row = $result->fetch_assoc()) {
+                $items[] = ['icon' => 'fa-file-lines', 'text' => 'Certificate ' . ($row['status'] === 'Released' ? 'released' : 'approved'), 'detail' => $row['certificate_type'] ?: 'Certificate request', 'href' => 'certificate_form.php'];
+            }
+            $stmt->close();
 
-        $stmt = $conn->prepare("SELECT purpose, status FROM appointments WHERE resident_id = ? AND status = 'Approved' ORDER BY updated_at DESC LIMIT 5");
-        $stmt->bind_param('i', $residentId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        while ($row = $result->fetch_assoc()) {
-            $items[] = ['icon' => 'fa-calendar-check', 'text' => 'Appointment approved', 'detail' => $row['purpose'] ?: 'Appointment request', 'href' => 'appointment_form.php'];
-        }
-        $stmt->close();
+            $userId = (int)($_SESSION['user_id'] ?? 0);
+            $stmt = $conn->prepare("SELECT purpose, status FROM appointments WHERE (resident_id = ? OR requested_by_user_id = ?) AND status = 'Approved' ORDER BY updated_at DESC LIMIT 5");
+            $stmt->bind_param('ii', $residentId, $userId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            while ($row = $result->fetch_assoc()) {
+                $items[] = ['icon' => 'fa-calendar-check', 'text' => 'Appointment approved', 'detail' => $row['purpose'] ?: 'Appointment request', 'href' => 'appointment_form.php'];
+            }
+            $stmt->close();
 
-        $stmt = $conn->prepare("SELECT category, status FROM complaints WHERE resident_id = ? AND status IN ('Ongoing', 'Resolved') ORDER BY updated_at DESC LIMIT 5");
-        $stmt->bind_param('i', $residentId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        while ($row = $result->fetch_assoc()) {
-            $items[] = ['icon' => 'fa-circle-exclamation', 'text' => 'Complaint ' . strtolower($row['status']), 'detail' => $row['category'] ?: 'Complaint report', 'href' => 'complaint_form.php'];
+            $stmt = $conn->prepare("SELECT category, status FROM complaints WHERE (resident_id = ? OR complainee_resident_id = ?) AND status IN ('Ongoing', 'Resolved') ORDER BY updated_at DESC LIMIT 5");
+            $stmt->bind_param('ii', $residentId, $residentId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            while ($row = $result->fetch_assoc()) {
+                $items[] = ['icon' => 'fa-circle-exclamation', 'text' => 'Complaint ' . strtolower($row['status']), 'detail' => $row['category'] ?: 'Complaint report', 'href' => 'complaint_form.php'];
+            }
+            $stmt->close();
         }
-        $stmt->close();
     } else {
-        $items = array_merge(officialTermAlerts($conn), staffNotifications($conn));
+        $items = array_merge($items, officialTermAlerts($conn), staffNotifications($conn));
     }
 
     return array_slice($items, 0, 8);
@@ -262,6 +313,7 @@ function householdMembersSql(string $householdIdExpr): string {
 /**
  * Suggests known household heads while typing in $headInputId, and when one is
  * picked fills the household fields in $fieldIds (id, members, type, income => input id).
+ * The optional family field displays the family group derived from the head's name.
  */
 function householdHeadLookup(mysqli $conn, string $headInputId, array $fieldIds): void {
     $heads = [];
@@ -291,8 +343,13 @@ function householdHeadLookup(mysqli $conn, string $headInputId, array $fieldIds)
         const name = head.value.trim().toLowerCase();
         const match = Array.from(document.querySelectorAll('#householdHeadList option'))
             .find(o => o.value.toLowerCase() === name);
+        const familyInput = document.getElementById(fields.family || '');
+        if (familyInput) {
+            familyInput.value = head.value.trim() ? 'Family of ' + head.value.trim() : '';
+        }
         if (!match) return;
         for (const [key, inputId] of Object.entries(fields)) {
+            if (key === 'family') continue;
             const el = document.getElementById(inputId);
             if (el && match.dataset[key]) el.value = match.dataset[key];
         }
@@ -345,8 +402,8 @@ function sidebarLinks(): array {
         'residents'    => ['href' => 'residents.php',    'icon' => 'fa-users',                'label' => 'Residents'],
         'household'    => ['href' => 'household.php',    'icon' => 'fa-house-user',           'label' => 'Household'],
         'officials'    => ['href' => 'officials.php',    'icon' => 'fa-user-tie',             'label' => 'Officials'],
-        'announcements' => ['href' => 'announcements.php', 'icon' => 'fa-bullhorn',             'label' => 'Announcements'],
         'audit'        => ['href' => 'audit.php',         'icon' => 'fa-clock-rotate-left',    'label' => 'History'],
+        'announcements' => ['href' => 'announcements.php', 'icon' => 'fa-bullhorn',             'label' => 'Announcements'],
         'certificates' => ['href' => 'certificates.php', 'icon' => 'fa-file-lines',           'label' => 'Online Certification'],
         'complaints'   => ['href' => 'complaints.php',   'icon' => 'fa-circle-exclamation',   'label' => 'Complaints &amp; Alerts'],
         'appointments' => ['href' => 'appointments.php', 'icon' => 'fa-calendar-check',       'label' => 'Appointments'],
@@ -382,8 +439,8 @@ function renderSidebar(string $activePage, string $variant = 'panel'): void {
             'resident_appointment' => ['href' => 'appointment_form.php', 'icon' => 'fa-calendar-check', 'label' => 'Book Appointment'],
             'resident_complaint' => ['href' => 'complaint_form.php', 'icon' => 'fa-circle-exclamation', 'label' => 'File Complaint'],
             'resident_emergency' => ['href' => 'emergency_report.php', 'icon' => 'fa-triangle-exclamation', 'label' => 'Report Emergency'],
-            'announcements' => ['href' => 'announcements.php', 'icon' => 'fa-bullhorn', 'label' => 'Announcements'],
             'audit' => ['href' => 'audit.php', 'icon' => 'fa-clock-rotate-left', 'label' => 'My History'],
+            'announcements' => ['href' => 'announcements.php', 'icon' => 'fa-bullhorn', 'label' => 'Announcements'],
             'logout' => ['href' => 'logout.php', 'icon' => 'fa-right-from-bracket', 'label' => 'Logout'],
         ];
     } else {
@@ -449,8 +506,6 @@ function renderTopbar(string $title, string $subtitle, string $variant = 'panel'
     $userName = htmlspecialchars(currentUserName(), ENT_QUOTES, 'UTF-8');
     $userRole = htmlspecialchars(currentUserRole(), ENT_QUOTES, 'UTF-8');
     $profileLogo = barangayLogoPath();
-    $notificationTotal = notificationCount($conn);
-    $notificationLabel = $notificationTotal > 99 ? '99+' : (string)$notificationTotal;
 
     $headerClass = 'topbar' . ($dashboardHeader ? ' dashboard-header-layout' : '');
     echo $variant === 'compact' ? '<div class="' . $headerClass . '">' : '<header class="' . $headerClass . '">';
@@ -539,12 +594,13 @@ function renderNotice(array $labels = []): void {
         'updated' => 'Record updated successfully.',
         'deleted' => 'Record deleted.',
         'missing' => 'That record no longer exists.',
+        'delete_disabled' => 'Deleting this record is disabled.',
     ];
     $text = $labels[$key] ?? $defaults[$key] ?? '';
     if ($text === '') {
         return;
     }
-    renderToast($text, $key === 'missing' ? 'error' : 'success');
+    renderToast($text, in_array($key, ['missing', 'delete_disabled', 'status_only', 'invalid_status', 'no_change'], true) ? 'error' : 'success');
 }
 
 function renderFooterScripts(bool $withBootstrap = true): void {

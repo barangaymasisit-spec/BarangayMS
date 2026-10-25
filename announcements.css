@@ -154,7 +154,8 @@
 }
 
 .announcement-form input,
-.announcement-form textarea {
+.announcement-form textarea,
+.announcement-form select {
     width: 100%;
     padding: 12px 14px;
     border: 1px solid #dce6e0;
@@ -167,7 +168,8 @@
 }
 
 .announcement-form input:focus,
-.announcement-form textarea:focus {
+.announcement-form textarea:focus,
+.announcement-form select:focus {
     border-color: #4d9775;
     box-shadow: 0 0 0 3px rgba(45, 133, 94, .12);
 }
@@ -175,6 +177,40 @@
 .announcement-form textarea {
     resize: vertical;
     line-height: 1.6;
+}
+
+.announcement-form [hidden] {
+    display: none !important;
+}
+
+.announcement-role-targets {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px 16px;
+    padding: 14px;
+    border: 1px solid #dce6e0;
+    border-radius: 10px;
+}
+
+.announcement-role-targets legend {
+    float: none;
+    width: auto;
+    margin: 0;
+    color: #435a51;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.announcement-role-targets label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+
+.announcement-role-targets input {
+    width: auto;
+    margin: 0;
 }
 
 .announcement-form-footer {
@@ -377,6 +413,16 @@
 .announcement-status-published {
     background: #e6f4eb;
     color: #28744f;
+}
+
+.announcement-status-active {
+    background: #e6f4eb;
+    color: #28744f;
+}
+
+.announcement-status-draft {
+    background: #edf0ef;
+    color: #667770;
 }
 
 .announcement-status-archived {

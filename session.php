@@ -288,6 +288,14 @@ function enforceActiveAccount(mysqli $conn): void {
     }
 
     if (!$user || !hash_equals((string)$_SESSION['password_fingerprint'], passwordFingerprint($user['password_hash']))) {
+        if (
+            !empty($_SESSION['admin_session_token'])
+            && $conn instanceof mysqli
+            && !$conn->connect_error
+            && function_exists('releaseAdminSessionLock')
+        ) {
+            releaseAdminSessionLock($conn, $userId, (string)$_SESSION['admin_session_token']);
+        }
         clearPersistentAuthCookie();
         unset($_COOKIE['BARANGAY_AUTH']);
         $_SESSION = [];

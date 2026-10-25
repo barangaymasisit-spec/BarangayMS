@@ -187,8 +187,12 @@ function ensureUserAccountColumns(mysqli $conn): void {
     if (!isset($columns['email_verify_hash'])) {
         $conn->query('ALTER TABLE users ADD COLUMN email_verify_hash CHAR(64) NULL');
     }
-    if (isset($columns['status']) && str_starts_with($columns['status'], 'enum(') && !str_contains($columns['status'], "'unverified'")) {
-        $conn->query("ALTER TABLE users MODIFY COLUMN status ENUM('Active','Inactive','Unverified') NOT NULL DEFAULT 'Active'");
+    if (isset($columns['status']) && str_starts_with($columns['status'], 'enum(') &&
+        (!str_contains($columns['status'], "'unverified'") || !str_contains($columns['status'], "'archived'"))) {
+        $conn->query("ALTER TABLE users MODIFY COLUMN status ENUM('Active','Inactive','Unverified','Archived') NOT NULL DEFAULT 'Active'");
+    }
+    if ($conn->query("SHOW INDEX FROM users WHERE Key_name = 'idx_users_resident_id'")->num_rows === 0) {
+        $conn->query('ALTER TABLE users ADD KEY idx_users_resident_id (resident_id)');
     }
 }
 
@@ -1004,13 +1008,93 @@ function databaseTableExists(mysqli $conn, string $tableName): bool {
     return $exists;
 }
 
+function ensureAdminSessionLockTable(mysqli $conn): void {
+    $conn->query(
+        'CREATE TABLE IF NOT EXISTS admin_session_lock (
+            id TINYINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            session_token CHAR(64) NOT NULL,
+            last_activity INT UNSIGNED NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY idx_admin_session_lock_token (session_token),
+            KEY idx_admin_session_lock_activity (last_activity)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+    );
+}
+
+function claimAdminSessionLock(mysqli $conn, int $userId, string $sessionToken): bool {
+    if ($userId < 1 || !preg_match('/^[a-f0-9]{64}$/', $sessionToken)) {
+        throw new InvalidArgumentException('A valid administrator and session token are required.');
+    }
+
+    $conn->begin_transaction();
+    try {
+        $insert = $conn->prepare('INSERT IGNORE INTO admin_session_lock (id, user_id, session_token, last_activity) VALUES (1, ?, ?, 0)');
+        $insert->bind_param('is', $userId, $sessionToken);
+        $insert->execute();
+        $insert->close();
+
+        $lock = $conn->query('SELECT user_id, session_token, last_activity FROM admin_session_lock WHERE id = 1 FOR UPDATE')->fetch_assoc();
+        $now = time();
+        $ownsLock = $lock
+            && (int)$lock['user_id'] === $userId
+            && hash_equals((string)$lock['session_token'], $sessionToken);
+        $sameAdministrator = $lock && (int)$lock['user_id'] === $userId;
+        $isExpired = !$lock || ($now - (int)$lock['last_activity']) >= SESSION_IDLE_TIMEOUT;
+
+        if (!$ownsLock && !$sameAdministrator && !$isExpired) {
+            $conn->rollback();
+            return false;
+        }
+
+        $update = $conn->prepare('UPDATE admin_session_lock SET user_id = ?, session_token = ?, last_activity = ? WHERE id = 1');
+        $update->bind_param('isi', $userId, $sessionToken, $now);
+        $update->execute();
+        $update->close();
+        $conn->commit();
+        return true;
+    } catch (Throwable $exception) {
+        $conn->rollback();
+        throw $exception;
+    }
+}
+
+function refreshAdminSessionLock(mysqli $conn, int $userId, string $sessionToken): bool {
+    $now = time();
+    $update = $conn->prepare('UPDATE admin_session_lock SET last_activity = ? WHERE id = 1 AND user_id = ? AND session_token = ?');
+    $update->bind_param('iis', $now, $userId, $sessionToken);
+    $update->execute();
+    $update->close();
+
+    $check = $conn->prepare('SELECT 1 FROM admin_session_lock WHERE id = 1 AND user_id = ? AND session_token = ? LIMIT 1');
+    $check->bind_param('is', $userId, $sessionToken);
+    $check->execute();
+    $ownsLock = $check->get_result()->num_rows > 0;
+    $check->close();
+    return $ownsLock;
+}
+
+function releaseAdminSessionLock(mysqli $conn, int $userId, string $sessionToken): void {
+    if ($userId < 1 || !preg_match('/^[a-f0-9]{64}$/', $sessionToken)) {
+        return;
+    }
+
+    $stmt = $conn->prepare('DELETE FROM admin_session_lock WHERE id = 1 AND user_id = ? AND session_token = ?');
+    $stmt->bind_param('is', $userId, $sessionToken);
+    $stmt->execute();
+    $stmt->close();
+}
+
 function ensureAnnouncementsTable(mysqli $conn): void {
     $conn->query(
         'CREATE TABLE IF NOT EXISTS announcements (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             title VARCHAR(200) NOT NULL,
             body TEXT NOT NULL,
-            status VARCHAR(20) NOT NULL DEFAULT \'Published\',
+            status VARCHAR(20) NOT NULL DEFAULT \'Draft\',
+            audience VARCHAR(30) NOT NULL DEFAULT \'all_residents\',
+            target_purok VARCHAR(150) DEFAULT NULL,
+            target_roles VARCHAR(255) DEFAULT NULL,
             created_by INT UNSIGNED DEFAULT NULL,
             published_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             expires_at DATE DEFAULT NULL,
@@ -1022,6 +1106,55 @@ function ensureAnnouncementsTable(mysqli $conn): void {
             KEY idx_announcements_created_by (created_by)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
     );
+
+    $columns = [];
+    foreach ($conn->query("SHOW COLUMNS FROM announcements WHERE Field IN ('audience', 'target_purok', 'target_roles')")->fetch_all(MYSQLI_ASSOC) as $column) {
+        $columns[$column['Field']] = true;
+    }
+    if (!isset($columns['audience'])) {
+        $conn->query("ALTER TABLE announcements ADD COLUMN audience VARCHAR(30) NOT NULL DEFAULT 'all_residents' AFTER status");
+    }
+    if (!isset($columns['target_purok'])) {
+        $conn->query('ALTER TABLE announcements ADD COLUMN target_purok VARCHAR(150) NULL AFTER audience');
+    }
+    if (!isset($columns['target_roles'])) {
+        $conn->query('ALTER TABLE announcements ADD COLUMN target_roles VARCHAR(255) NULL AFTER target_purok');
+    }
+    $conn->query("UPDATE announcements SET status = 'Active' WHERE status = 'Published'");
+}
+
+function ensureComplaintAudienceColumns(mysqli $conn): void {
+    if (!databaseTableExists($conn, 'complaints')) {
+        return;
+    }
+
+    $columns = [];
+    foreach ($conn->query("SHOW COLUMNS FROM complaints WHERE Field IN ('complainee_resident_id', 'complainee_name')")->fetch_all(MYSQLI_ASSOC) as $column) {
+        $columns[$column['Field']] = true;
+    }
+    if (!isset($columns['complainee_resident_id'])) {
+        $conn->query('ALTER TABLE complaints ADD COLUMN complainee_resident_id INT UNSIGNED NULL AFTER resident_name');
+    }
+    if (!isset($columns['complainee_name'])) {
+        $conn->query('ALTER TABLE complaints ADD COLUMN complainee_name VARCHAR(200) NULL AFTER complainee_resident_id');
+    }
+    if ($conn->query("SHOW INDEX FROM complaints WHERE Key_name = 'idx_complaint_complainee_resident_id'")->num_rows === 0) {
+        $conn->query('ALTER TABLE complaints ADD KEY idx_complaint_complainee_resident_id (complainee_resident_id)');
+    }
+}
+
+function ensureAppointmentRequesterColumn(mysqli $conn): void {
+    if (!databaseTableExists($conn, 'appointments')) {
+        return;
+    }
+
+    $column = $conn->query("SHOW COLUMNS FROM appointments LIKE 'requested_by_user_id'");
+    if ($column && $column->num_rows === 0) {
+        $conn->query('ALTER TABLE appointments ADD COLUMN requested_by_user_id INT UNSIGNED NULL AFTER resident_id');
+    }
+    if ($conn->query("SHOW INDEX FROM appointments WHERE Key_name = 'idx_appointments_requested_by_user'")->num_rows === 0) {
+        $conn->query('ALTER TABLE appointments ADD KEY idx_appointments_requested_by_user (requested_by_user_id)');
+    }
 }
 
 function runDatabaseMigration(callable $migration, string $name): void {
@@ -1058,8 +1191,11 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     }, 'database backup cleanup');
     runDatabaseMigration(static fn () => ensureAnnouncementsTable($GLOBALS['conn']), 'announcements');
     runDatabaseMigration(static fn () => ensureUserAccountColumns($GLOBALS['conn']), 'user account columns');
+    runDatabaseMigration(static fn () => ensureComplaintAudienceColumns($GLOBALS['conn']), 'complaint audience columns');
+    runDatabaseMigration(static fn () => ensureAppointmentRequesterColumn($GLOBALS['conn']), 'appointment requester column');
     runDatabaseMigration(static fn () => ensureCertificateRequesterColumns($GLOBALS['conn']), 'certificate requester columns');
     runDatabaseMigration(static fn () => migrateRegisteredVoterCategory($GLOBALS['conn']), 'registered voter migration');
     runDatabaseMigration(static fn () => expireOfficialTerms($GLOBALS['conn']), 'official terms');
+    runDatabaseMigration(static fn () => ensureAdminSessionLockTable($GLOBALS['conn']), 'administrator session lock');
 }
 // Scheduled backups run through backup.php, not during web requests.

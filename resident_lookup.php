@@ -24,8 +24,10 @@ if (!verifyCsrfToken()) {
 }
 
 $firstName = trim((string)($_POST['first_name'] ?? ''));
+$middleName = trim((string)($_POST['middle_name'] ?? ''));
 $lastName = trim((string)($_POST['last_name'] ?? ''));
-if ($firstName === '' || $lastName === '' || strlen($firstName) > 100 || strlen($lastName) > 100) {
+ $suffix = trim((string)($_POST['suffix'] ?? ''));
+if ($firstName === '' || $lastName === '' || strlen($firstName) > 100 || strlen($middleName) > 100 || strlen($lastName) > 100 || strlen($suffix) > 50) {
     residentLookupResponse(400, ['found' => false, 'message' => 'Enter a valid first and last name.']);
 }
 
@@ -40,8 +42,8 @@ if (count($recentLookups) >= 10) {
 $recentLookups[] = $now;
 $_SESSION['resident_lookup_attempts'] = $recentLookups;
 
-$stmt = $conn->prepare('SELECT resident_number FROM residents WHERE first_name = ? AND last_name = ? ORDER BY id LIMIT 2');
-$stmt->bind_param('ss', $firstName, $lastName);
+$stmt = $conn->prepare('SELECT resident_number FROM residents WHERE first_name = ? AND COALESCE(middle_name, \'\') = ? AND last_name = ? AND COALESCE(suffix, \'\') = ? ORDER BY id LIMIT 2');
+$stmt->bind_param('ssss', $firstName, $middleName, $lastName, $suffix);
 $stmt->execute();
 $matches = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();

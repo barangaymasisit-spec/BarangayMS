@@ -10,44 +10,44 @@ if (!$resident) {
 }
 
 $residentId = (int)$resident['id'];
+$currentUserId = (int)$_SESSION['user_id'];
 $certificateCount = 0;
 $appointmentCount = 0;
 $complaintCount = 0;
 
-$stmt = $conn->prepare('SELECT COUNT(*) FROM certificates WHERE resident_id = ?');
-$stmt->bind_param('i', $residentId);
+$stmt = $conn->prepare('SELECT COUNT(*) FROM certificates WHERE resident_id = ? OR requested_by_user_id = ?');
+$stmt->bind_param('ii', $residentId, $currentUserId);
 $stmt->execute();
 $certificateCount = (int)$stmt->get_result()->fetch_row()[0];
 $stmt->close();
 
-$stmt = $conn->prepare('SELECT purpose, appointment_date, appointment_time, status FROM appointments WHERE resident_id = ? ORDER BY appointment_date DESC, appointment_time DESC LIMIT 5');
-$stmt->bind_param('i', $residentId);
+$stmt = $conn->prepare('SELECT resident_name, purpose, appointment_date, appointment_time, status FROM appointments WHERE resident_id = ? OR requested_by_user_id = ? ORDER BY appointment_date DESC, appointment_time DESC LIMIT 5');
+$stmt->bind_param('ii', $residentId, $currentUserId);
 $stmt->execute();
 $appointments = $stmt->get_result();
 $stmt->close();
 
-$stmt = $conn->prepare('SELECT tracking_number, category, date_filed, status FROM complaints WHERE resident_id = ? ORDER BY id DESC LIMIT 5');
-$stmt->bind_param('i', $residentId);
+$stmt = $conn->prepare('SELECT tracking_number, resident_name, complainee_name, category, date_filed, status FROM complaints WHERE resident_id = ? OR complainee_resident_id = ? ORDER BY id DESC LIMIT 5');
+$stmt->bind_param('ii', $residentId, $residentId);
 $stmt->execute();
 $complaints = $stmt->get_result();
 $stmt->close();
 
 $activeAlerts = $conn->query("SELECT category, description, created_at FROM emergency_alerts WHERE status = 'Active' ORDER BY created_at DESC LIMIT 5");
 
-$stmt = $conn->prepare('SELECT COUNT(*) FROM appointments WHERE resident_id = ?');
-$stmt->bind_param('i', $residentId);
+$stmt = $conn->prepare('SELECT COUNT(*) FROM appointments WHERE resident_id = ? OR requested_by_user_id = ?');
+$stmt->bind_param('ii', $residentId, $currentUserId);
 $stmt->execute();
 $appointmentCount = (int)$stmt->get_result()->fetch_row()[0];
 $stmt->close();
 
-$stmt = $conn->prepare('SELECT COUNT(*) FROM complaints WHERE resident_id = ?');
-$stmt->bind_param('i', $residentId);
+$stmt = $conn->prepare('SELECT COUNT(*) FROM complaints WHERE resident_id = ? OR complainee_resident_id = ?');
+$stmt->bind_param('ii', $residentId, $residentId);
 $stmt->execute();
 $complaintCount = (int)$stmt->get_result()->fetch_row()[0];
 $stmt->close();
 
-$currentUserId = (int)$_SESSION['user_id'];
-$stmt = $conn->prepare('SELECT c.id, c.resident_id, c.certificate_type, c.status, c.request_date, r.first_name AS recipient_first_name, r.last_name AS recipient_last_name FROM certificates c LEFT JOIN residents r ON c.resident_id = r.id WHERE c.resident_id = ? OR c.requested_by_user_id = ? ORDER BY c.id DESC LIMIT 5');
+$stmt = $conn->prepare('SELECT c.id, c.resident_id, c.certificate_type, c.status, c.request_date, r.first_name AS recipient_first_name, r.middle_name AS recipient_middle_name, r.last_name AS recipient_last_name, r.suffix AS recipient_suffix FROM certificates c LEFT JOIN residents r ON c.resident_id = r.id WHERE c.resident_id = ? OR c.requested_by_user_id = ? ORDER BY c.id DESC LIMIT 5');
 $stmt->bind_param('ii', $residentId, $currentUserId);
 $stmt->execute();
 $certificates = $stmt->get_result();
@@ -164,7 +164,7 @@ $certificates = $stmt->get_result();
                         <?php while ($certificate = $certificates->fetch_assoc()): ?>
                             <tr>
                                 <td><?php echo h(certificateTrackingNumber((int)$certificate['id'], $certificate['request_date'])); ?></td>
-                                <td><?php echo h(trim(($certificate['recipient_first_name'] ?? '') . ' ' . ($certificate['recipient_last_name'] ?? ''))); ?></td>
+                                <td><?php echo h(trim(implode(' ', array_filter([$certificate['recipient_first_name'] ?? '', $certificate['recipient_middle_name'] ?? '', $certificate['recipient_last_name'] ?? '', $certificate['recipient_suffix'] ?? ''])))); ?></td>
                                 <td><?php echo h($certificate['certificate_type']); ?></td>
                                 <td><?php echo h($certificate['request_date']); ?></td>
                                 <td><?php echo h($statusLabels[$certificate['status']] ?? $certificate['status']); ?></td>
@@ -178,17 +178,17 @@ $certificates = $stmt->get_result();
 
         <section class="content-section">
             <div class="section-header"><div><h3>My Appointments</h3><p>Track your appointment requests.</p></div></div>
-            <div class="table-responsive"><table><thead><tr><th>Purpose</th><th>Date</th><th>Time</th><th>Status</th></tr></thead><tbody>
-            <?php if ($appointments->num_rows === 0): ?><tr><td colspan="4">No appointments yet.</td></tr>
-            <?php else: while ($appointment = $appointments->fetch_assoc()): ?><tr><td><?php echo h($appointment['purpose']); ?></td><td><?php echo h($appointment['appointment_date']); ?></td><td><?php echo h(substr((string)$appointment['appointment_time'], 0, 5)); ?></td><td><?php echo h($appointment['status']); ?></td></tr><?php endwhile; endif; ?>
+            <div class="table-responsive"><table><thead><tr><th>For</th><th>Purpose</th><th>Date</th><th>Time</th><th>Status</th></tr></thead><tbody>
+            <?php if ($appointments->num_rows === 0): ?><tr><td colspan="5">No appointments yet.</td></tr>
+            <?php else: while ($appointment = $appointments->fetch_assoc()): ?><tr><td><?php echo h($appointment['resident_name']); ?></td><td><?php echo h($appointment['purpose']); ?></td><td><?php echo h($appointment['appointment_date']); ?></td><td><?php echo h(substr((string)$appointment['appointment_time'], 0, 5)); ?></td><td><?php echo h($appointment['status']); ?></td></tr><?php endwhile; endif; ?>
             </tbody></table></div>
         </section>
 
         <section class="content-section">
-            <div class="section-header"><div><h3>My Complaints</h3><p>Track your complaints.</p></div></div>
-            <div class="table-responsive"><table><thead><tr><th>Tracking No.</th><th>Category</th><th>Date Filed</th><th>Status</th></tr></thead><tbody>
-            <?php if ($complaints->num_rows === 0): ?><tr><td colspan="4">No complaints yet.</td></tr>
-            <?php else: while ($complaint = $complaints->fetch_assoc()): ?><tr><td><?php echo h($complaint['tracking_number']); ?></td><td><?php echo h($complaint['category']); ?></td><td><?php echo h($complaint['date_filed']); ?></td><td><?php echo h($complaint['status']); ?></td></tr><?php endwhile; endif; ?>
+            <div class="section-header"><div><h3>Complaints Involving You</h3><p>Includes complaints you filed and complaints that name you as the complainee.</p></div></div>
+            <div class="table-responsive"><table><thead><tr><th>Tracking No.</th><th>Complainant</th><th>Complainee</th><th>Category</th><th>Date Filed</th><th>Status</th></tr></thead><tbody>
+            <?php if ($complaints->num_rows === 0): ?><tr><td colspan="6">No complaints involving you.</td></tr>
+            <?php else: while ($complaint = $complaints->fetch_assoc()): ?><tr><td><?php echo h($complaint['tracking_number']); ?></td><td><?php echo h($complaint['resident_name']); ?></td><td><?php echo h($complaint['complainee_name']); ?></td><td><?php echo h($complaint['category']); ?></td><td><?php echo h($complaint['date_filed']); ?></td><td><?php echo h($complaint['status']); ?></td></tr><?php endwhile; endif; ?>
             </tbody></table></div>
         </section>
     </main>

@@ -156,7 +156,7 @@ $alertRows = [];
 
                                 <th>Date</th>
 
-                                <?php if ($isAdmin): ?><th>Action</th><?php endif; ?>
+                                <th>Action</th>
 
                             </tr>
 
@@ -167,7 +167,7 @@ $alertRows = [];
                             <?php if ($openAlerts->num_rows === 0): ?>
 
                                 <tr>
-                                    <td colspan="<?php echo $isAdmin ? 6 : 5; ?>">No open emergency reports or alerts.</td>
+                                    <td colspan="6">No open emergency reports or alerts.</td>
                                 </tr>
 
                             <?php else: ?>
@@ -195,8 +195,9 @@ $alertRows = [];
 
                                         <td class="text-nowrap"><?php echo h(formatDatabaseDateTime($alert['created_at'])); ?></td>
 
-                                        <?php if ($isAdmin): ?>
-                                            <td class="text-nowrap">
+                                        <td class="text-nowrap">
+                                            <a href="record_view.php?type=emergency&amp;id=<?php echo (int)$alert['id']; ?>" class="btn btn-sm btn-outline-primary">View</a>
+                                            <?php if ($isAdmin): ?>
                                                 <form method="post" class="d-inline">
                                                     <?php echo csrfField(); ?>
                                                     <input type="hidden" name="id" value="<?php echo (int)$alert['id']; ?>">
@@ -211,8 +212,8 @@ $alertRows = [];
                                                         </button>
                                                     <?php endif; ?>
                                                 </form>
-                                            </td>
-                                        <?php endif; ?>
+                                            <?php endif; ?>
+                                        </td>
 
                                     </tr>
 

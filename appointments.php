@@ -98,7 +98,7 @@ function formatTime($time) {
         <?php renderNotice([
             'created' => 'Appointment scheduled.',
             'updated' => 'Appointment updated.',
-            'deleted' => 'Appointment deleted.',
+            'delete_disabled' => 'Deleting appointment records is disabled. You can view or edit the record instead.',
         ]); ?>
 
         <!-- Cards -->
@@ -287,11 +287,19 @@ function formatTime($time) {
                                         <td>
 
                                             <a
-                                                href="appointment_form.php?id=<?php echo (int)$row['id']; ?>"
+                                                href="record_view.php?type=appointment&amp;id=<?php echo (int)$row['id']; ?>"
                                                 class="btn btn-sm btn-primary"
                                                 aria-label="View Appointment">
 
                                                 View
+
+                                            </a>
+                                            <a
+                                                href="appointment_form.php?id=<?php echo (int)$row['id']; ?>&amp;edit=1"
+                                                class="btn btn-sm btn-outline-secondary"
+                                                aria-label="Edit Appointment">
+
+                                                Edit
 
                                             </a>
 

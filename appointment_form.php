@@ -25,23 +25,16 @@ if ($id > 0) {
     }
 }
 
-// Delete
 if ($appointment && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
-    $stmt = $conn->prepare('DELETE FROM appointments WHERE id = ?');
-    $stmt->bind_param('i', $id);
-    $stmt->execute();
-    $stmt->close();
-    logActivity($conn, 'deleted', 'appointments', 'Deleted appointment record.', $id);
-    header('Location: appointments.php?msg=deleted');
+    header('Location: appointments.php?msg=delete_disabled');
     exit;
 }
 
 $isEdit = $appointment && isset($_GET['edit']);
 $isNew = !$appointment;
 
-$residents = $isResident
-    ? $conn->query('SELECT id, resident_number, first_name, last_name FROM residents WHERE id = ' . (int)$currentResident['id'])
-    : $conn->query('SELECT id, resident_number, first_name, last_name FROM residents ORDER BY last_name ASC, first_name ASC');
+$residents = $conn->query('SELECT id, resident_number, first_name, middle_name, last_name, suffix FROM residents ORDER BY first_name ASC, last_name ASC');
+$residentOptions = $residents->fetch_all(MYSQLI_ASSOC);
 
 $statusOptions = ['Pending', 'Approved', 'Cancelled'];
 
@@ -53,6 +46,12 @@ $values = [
     'appointment_time' => $appointment ? substr((string)$appointment['appointment_time'], 0, 5) : '09:00',
     'status'           => $appointment['status'] ?? 'Pending',
     'notes'            => $appointment['notes'] ?? '',
+    'request_for'      => 'self',
+    'other_resident_number' => '',
+    'other_first_name' => '',
+    'other_middle_name' => '',
+    'other_last_name' => '',
+    'other_suffix' => '',
 ];
 
 if ($isResident) {
@@ -65,9 +64,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $values[$field] = trim($_POST[$field] ?? '');
     }
     if ($isResident) {
-        $values['resident_id'] = (string)$currentResident['id'];
-        $values['resident_name'] = trim($currentResident['first_name'] . ' ' . $currentResident['last_name']);
         $values['status'] = 'Pending';
+        $values['request_for'] = trim($_POST['request_for'] ?? 'self');
+        $values['other_resident_number'] = trim($_POST['other_resident_number'] ?? '');
+        $values['other_first_name'] = trim($_POST['other_first_name'] ?? '');
+        $values['other_middle_name'] = trim($_POST['other_middle_name'] ?? '');
+        $values['other_last_name'] = trim($_POST['other_last_name'] ?? '');
+        $values['other_suffix'] = trim($_POST['other_suffix'] ?? '');
+
+        if ($values['request_for'] === 'self') {
+            $values['resident_id'] = (string)$currentResident['id'];
+            $values['resident_name'] = trim(implode(' ', array_filter([
+                $currentResident['first_name'],
+                $currentResident['middle_name'],
+                $currentResident['last_name'],
+                $currentResident['suffix'],
+            ])));
+        } elseif ($values['request_for'] === 'other') {
+            if ($values['other_resident_number'] === '' || $values['other_first_name'] === '' || $values['other_last_name'] === '') {
+                $error = 'Enter the other resident’s resident number, first name, and last name.';
+            } else {
+                $stmt = $conn->prepare('SELECT id, first_name, middle_name, last_name, suffix FROM residents WHERE resident_number = ? AND first_name = ? AND COALESCE(middle_name, \'\') = ? AND last_name = ? AND COALESCE(suffix, \'\') = ? LIMIT 1');
+                $stmt->bind_param('sssss', $values['other_resident_number'], $values['other_first_name'], $values['other_middle_name'], $values['other_last_name'], $values['other_suffix']);
+                $stmt->execute();
+                $otherResident = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                if ($otherResident) {
+                    $values['resident_id'] = (string)$otherResident['id'];
+                    $values['resident_name'] = trim(implode(' ', array_filter([
+                        $otherResident['first_name'],
+                        $otherResident['middle_name'],
+                        $otherResident['last_name'],
+                        $otherResident['suffix'],
+                    ])));
+                } else {
+                    $error = 'Those details do not match a resident record. Check them or contact the barangay office.';
+                }
+            }
+        } else {
+            $error = 'Choose whether this appointment is for yourself or another resident.';
+        }
     }
     $residentId = (int)$values['resident_id'];
 
@@ -83,7 +119,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $residentIdOrNull = $residentId > 0 ? $residentId : null;
 
-    if ($values['resident_name'] === '') {
+    if ($error !== '') {
+        // Keep the form open with the validation message.
+    } elseif ($values['resident_name'] === '') {
         $error = 'Please choose a resident or type the name.';
     } elseif ($values['purpose'] === '') {
         $error = 'Purpose of the appointment is required.';
@@ -118,10 +156,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        $stmt = $conn->prepare('INSERT INTO appointments (resident_id, resident_name, purpose, appointment_date, appointment_time, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $requestedByUserId = (int)($_SESSION['user_id'] ?? 0);
+        $stmt = $conn->prepare('INSERT INTO appointments (resident_id, requested_by_user_id, resident_name, purpose, appointment_date, appointment_time, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
         $stmt->bind_param(
-            'issssss',
+            'iissssss',
             $residentIdOrNull,
+            $requestedByUserId,
             $values['resident_name'],
             $values['purpose'],
             $values['appointment_date'],
@@ -139,7 +179,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $showForm = $isNew || $isEdit;
 $title = $isNew ? 'New Appointment' : ($isEdit ? 'Edit Appointment' : 'Appointment Details');
-$purposeOptions = ['Barangay Clearance', 'Certificate Request', 'Complaint Hearing', 'Business Permit', 'Consultation', 'Others'];
+$purposeOptions = ['Barangay consultation', 'Complaint hearing', 'Business permit consultation', 'Community program', 'Other'];
+$residentSearchChoices = [];
+foreach ($residentOptions as $resident) {
+    $fullName = trim(implode(' ', array_filter([
+        $resident['first_name'],
+        $resident['middle_name'],
+        $resident['last_name'],
+        $resident['suffix'],
+    ])));
+    $residentSearchChoices[] = [
+        'resident_number' => (string)$resident['resident_number'],
+        'first_name' => (string)$resident['first_name'],
+        'middle_name' => (string)($resident['middle_name'] ?? ''),
+        'last_name' => (string)$resident['last_name'],
+        'suffix' => (string)($resident['suffix'] ?? ''),
+        'full_name' => $fullName,
+        'search' => $fullName . ' ' . $resident['resident_number'],
+    ];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -178,27 +236,52 @@ $purposeOptions = ['Barangay Clearance', 'Certificate Request', 'Complaint Heari
                         <div class="col-md-6">
                             <label class="form-label" for="resident_id">Resident</label>
                             <?php if ($isResident): ?>
-                            <input type="hidden" name="resident_id" value="<?php echo (int)$currentResident['id']; ?>">
-                            <input type="text" class="form-control" id="resident_id" value="<?php echo h(trim($currentResident['first_name'] . ' ' . $currentResident['last_name'])); ?>" readonly>
+                            <fieldset class="form-control">
+                                <legend class="form-label mb-2">Who is this appointment for?</legend>
+                                <label class="me-3"><input type="radio" name="request_for" value="self"<?php echo $values['request_for'] === 'self' ? ' checked' : ''; ?>> For myself</label>
+                                <label><input type="radio" name="request_for" value="other"<?php echo $values['request_for'] === 'other' ? ' checked' : ''; ?>> For another resident</label>
+                            </fieldset>
+                            <div id="selfRecipient" class="mt-2">
+                                <input type="hidden" name="resident_id" value="<?php echo (int)$currentResident['id']; ?>">
+                                <input type="text" class="form-control" value="<?php echo h(trim(implode(' ', array_filter([$currentResident['first_name'], $currentResident['middle_name'], $currentResident['last_name'], $currentResident['suffix']])))); ?>" readonly>
+                            </div>
+                            <div id="otherRecipientFields" class="row g-2 mt-1"<?php echo $values['request_for'] === 'other' ? '' : ' hidden'; ?>>
+                                <div class="col-12">
+                                    <label class="form-label" for="other_first_name">First Name *</label>
+                                    <div class="resident-search">
+                                        <input class="form-control" id="other_first_name" name="other_first_name" value="<?php echo h($values['other_first_name']); ?>" placeholder="Enter first name" list="appointment-resident-options" autocomplete="off">
+                                        <datalist id="appointment-resident-options">
+                                            <?php foreach ($residentSearchChoices as $resident): ?>
+                                                <option value="<?php echo h($resident['full_name'] . ' (' . $resident['resident_number'] . ')'); ?>"></option>
+                                            <?php endforeach; ?>
+                                        </datalist>
+                                    </div>
+                                </div>
+                                <div class="col-12"><label class="form-label" for="other_resident_number">Resident Number *</label><input class="form-control" id="other_resident_number" name="other_resident_number" value="<?php echo h($values['other_resident_number']); ?>" readonly></div>
+                                <div class="col-md-6"><label class="form-label" for="other_middle_name">Middle Name</label><input class="form-control" id="other_middle_name" name="other_middle_name" value="<?php echo h($values['other_middle_name']); ?>" readonly></div>
+                                <div class="col-md-6"><label class="form-label" for="other_last_name">Last Name *</label><input class="form-control" id="other_last_name" name="other_last_name" value="<?php echo h($values['other_last_name']); ?>" readonly></div>
+                                <div class="col-md-6"><label class="form-label" for="other_suffix">Suffix</label><input class="form-control" id="other_suffix" name="other_suffix" value="<?php echo h($values['other_suffix']); ?>" readonly></div>
+                            </div>
                             <?php else: ?>
                             <select class="form-select" id="resident_id" name="resident_id">
                                 <option value="">Not a registered resident</option>
-                                <?php while ($resident = $residents->fetch_assoc()): ?>
+                                <?php foreach ($residentOptions as $resident): ?>
                                     <option value="<?php echo (int)$resident['id']; ?>"<?php echo (int)$values['resident_id'] === (int)$resident['id'] ? ' selected' : ''; ?>>
-                                        <?php echo h(trim($resident['last_name'] . ', ' . $resident['first_name']) . ' (' . $resident['resident_number'] . ')'); ?>
+                                        <?php echo h(trim($resident['last_name'] . ', ' . $resident['first_name'] . ' ' . $resident['middle_name'] . ' ' . $resident['suffix']) . ' (' . $resident['resident_number'] . ')'); ?>
                                     </option>
-                                <?php endwhile; ?>
+                                <?php endforeach; ?>
                             </select>
                             <?php endif; ?>
                         </div>
 
+                        <?php if (!$isResident): ?>
                         <div class="col-md-6">
                             <label class="form-label" for="resident_name">Name *</label>
                             <input type="text" class="form-control" id="resident_name" name="resident_name" value="<?php echo h($values['resident_name']); ?>"<?php echo $isResident ? ' readonly' : ''; ?>>
                             <small class="text-muted">Filled in automatically when a resident is selected.</small>
                         </div>
+                        <?php endif; ?>
 
-                        <?php if (!$isResident): ?>
                         <div class="col-md-6">
                             <label class="form-label" for="purpose">Purpose *</label>
                             <select class="form-select" id="purpose" name="purpose" required>
@@ -208,8 +291,8 @@ $purposeOptions = ['Barangay Clearance', 'Certificate Request', 'Complaint Heari
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <?php endif; ?>
 
+                        <?php if (!$isResident): ?>
                         <div class="col-md-6">
                             <label class="form-label" for="status">Status</label>
                             <select class="form-select" id="status" name="status">
@@ -218,6 +301,7 @@ $purposeOptions = ['Barangay Clearance', 'Certificate Request', 'Complaint Heari
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <?php endif; ?>
 
                         <div class="col-md-6">
                             <label class="form-label" for="appointment_date">Date *</label>
@@ -271,13 +355,6 @@ $purposeOptions = ['Barangay Clearance', 'Certificate Request', 'Complaint Heari
                         <i class="fa-solid fa-pen-to-square"></i>
                         Edit
                     </a>
-                                        <form method="post" action="appointment_form.php?id=<?php echo $id; ?>" class="d-inline ms-2"
-                                                    onsubmit="return confirm('Delete this appointment?');">
-                                                <?php echo csrfField(); ?>
-                                                <input type="hidden" name="action" value="delete">
-                        <i class="fa-solid fa-trash"></i>
-                                                <button type="submit" class="btn btn-danger">Delete</button>
-                                        </form>
                     <a href="appointments.php" class="btn btn-secondary ms-2">
                         <i class="fa-solid fa-arrow-left"></i>
                         Back to Appointments
@@ -291,5 +368,63 @@ $purposeOptions = ['Barangay Clearance', 'Certificate Request', 'Complaint Heari
     </main>
 </div>
 <?php renderFooterScripts(); ?>
+<?php if ($isResident && $showForm): ?>
+<script>
+    const requestForInputs = document.querySelectorAll('input[name="request_for"]');
+    const selfRecipient = document.getElementById('selfRecipient');
+    const otherRecipientFields = document.getElementById('otherRecipientFields');
+    const otherRecipientInputs = otherRecipientFields.querySelectorAll('input');
+    const otherFirstName = document.getElementById('other_first_name');
+    const residentChoices = <?php echo json_encode($residentSearchChoices, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+    let selectedOtherResident = null;
+
+    function fillOtherResident(resident) {
+        document.getElementById('other_resident_number').value = resident.resident_number;
+        otherFirstName.value = resident.first_name;
+        document.getElementById('other_middle_name').value = resident.middle_name || '';
+        document.getElementById('other_last_name').value = resident.last_name;
+        document.getElementById('other_suffix').value = resident.suffix || '';
+        otherFirstName.setCustomValidity('');
+    }
+
+    function selectOtherResident() {
+        const selectedName = otherFirstName.value.trim().toLocaleLowerCase();
+        const resident = residentChoices.find((option) =>
+            `${option.full_name} (${option.resident_number})`.toLocaleLowerCase() === selectedName
+        );
+        if (resident) {
+            selectedOtherResident = resident;
+            fillOtherResident(resident);
+        } else if (selectedOtherResident && otherFirstName.value === selectedOtherResident.first_name) {
+            return;
+        } else {
+            selectedOtherResident = null;
+            otherResidentInputs.forEach((input) => {
+                if (input.id !== 'other_first_name') input.value = '';
+            });
+            otherFirstName.setCustomValidity('Choose a resident from the suggestions.');
+        }
+    }
+
+    otherFirstName.addEventListener('input', selectOtherResident);
+    otherFirstName.addEventListener('change', selectOtherResident);
+
+    function updateRecipientFields() {
+        const forOther = document.querySelector('input[name="request_for"]:checked')?.value === 'other';
+        selfRecipient.hidden = forOther;
+        otherRecipientFields.hidden = !forOther;
+        otherRecipientInputs.forEach((input) => {
+            input.disabled = !forOther;
+            input.required = forOther && input.id !== 'other_middle_name' && input.id !== 'other_suffix';
+        });
+        document.querySelector('input[name="resident_id"]').disabled = forOther;
+        if (!forOther) {
+            otherFirstName.setCustomValidity('');
+        }
+    }
+    requestForInputs.forEach((input) => input.addEventListener('change', updateRecipientFields));
+    updateRecipientFields();
+</script>
+<?php endif; ?>
 </body>
 </html>

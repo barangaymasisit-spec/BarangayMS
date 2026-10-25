@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   `email` VARCHAR(150) NOT NULL UNIQUE,
   `password_hash` VARCHAR(255) NOT NULL,
   `role` ENUM('admin','staff','health_worker','security_force','resident') NOT NULL DEFAULT 'admin',
-  `status` ENUM('Active','Inactive') NOT NULL DEFAULT 'Active',
+  `status` ENUM('Active','Inactive','Unverified','Archived') NOT NULL DEFAULT 'Active',
+  `resident_id` INT UNSIGNED DEFAULT NULL,
   `term` VARCHAR(100) DEFAULT NULL,
   `position` VARCHAR(100) DEFAULT NULL,
   `address` VARCHAR(255) DEFAULT NULL,
@@ -19,7 +20,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   `photo_mime` VARCHAR(50) DEFAULT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_users_resident_id` (`resident_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `php_sessions` (
@@ -28,6 +30,16 @@ CREATE TABLE IF NOT EXISTS `php_sessions` (
   `last_activity` INT UNSIGNED NOT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_php_sessions_last_activity` (`last_activity`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `admin_session_lock` (
+  `id` TINYINT UNSIGNED NOT NULL,
+  `user_id` INT UNSIGNED NOT NULL,
+  `session_token` CHAR(64) NOT NULL,
+  `last_activity` INT UNSIGNED NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_admin_session_lock_token` (`session_token`),
+  KEY `idx_admin_session_lock_activity` (`last_activity`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `barangay_settings` (
@@ -68,7 +80,10 @@ CREATE TABLE IF NOT EXISTS `announcements` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `title` VARCHAR(200) NOT NULL,
   `body` TEXT NOT NULL,
-  `status` VARCHAR(20) NOT NULL DEFAULT 'Published',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'Draft',
+  `audience` VARCHAR(30) NOT NULL DEFAULT 'all_residents',
+  `target_purok` VARCHAR(150) DEFAULT NULL,
+  `target_roles` VARCHAR(255) DEFAULT NULL,
   `created_by` INT UNSIGNED DEFAULT NULL,
   `published_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `expires_at` DATE DEFAULT NULL,
@@ -210,6 +225,8 @@ CREATE TABLE IF NOT EXISTS `complaints` (
   `tracking_number` VARCHAR(100) NOT NULL UNIQUE,
   `resident_id` INT UNSIGNED DEFAULT NULL,
   `resident_name` VARCHAR(200) DEFAULT NULL,
+  `complainee_resident_id` INT UNSIGNED DEFAULT NULL,
+  `complainee_name` VARCHAR(200) DEFAULT NULL,
   `category` VARCHAR(150) DEFAULT NULL,
   `status` VARCHAR(50) DEFAULT NULL,
   `date_filed` DATE DEFAULT NULL,
@@ -218,12 +235,14 @@ CREATE TABLE IF NOT EXISTS `complaints` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_complaint_resident_id` (`resident_id`)
+  KEY `idx_complaint_resident_id` (`resident_id`),
+  KEY `idx_complaint_complainee_resident_id` (`complainee_resident_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `appointments` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `resident_id` INT UNSIGNED DEFAULT NULL,
+  `requested_by_user_id` INT UNSIGNED DEFAULT NULL,
   `resident_name` VARCHAR(200) DEFAULT NULL,
   `purpose` VARCHAR(255) DEFAULT NULL,
   `appointment_date` DATE DEFAULT NULL,
@@ -233,5 +252,6 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_appointment_resident_id` (`resident_id`)
+  KEY `idx_appointment_resident_id` (`resident_id`),
+  KEY `idx_appointments_requested_by_user` (`requested_by_user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -267,7 +267,11 @@ $recentActivity = $conn->query(
             <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
                 <h3>Recent Audit History</h3>
                 <?php if (($_SESSION['role'] ?? '') === 'admin'): ?>
-                    <a href="audit.php" class="btn btn-sm btn-outline-primary"><i class="fa-solid fa-clock-rotate-left"></i> View Full History</a>
+                    <a href="audit.php" class="audit-history-link">
+                        <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+                        <span>View Full History</span>
+                        <i class="fa-solid fa-arrow-right audit-history-arrow" aria-hidden="true"></i>
+                    </a>
                 <?php endif; ?>
             </div>
             <div class="table-responsive">

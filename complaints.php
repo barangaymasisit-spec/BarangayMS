@@ -9,12 +9,13 @@ $params = [];
 $types = '';
 
 if ($search !== '') {
-    $where[] = '(tracking_number LIKE ? OR resident_name LIKE ? OR category LIKE ?)';
+    $where[] = '(tracking_number LIKE ? OR resident_name LIKE ? OR complainee_name LIKE ? OR category LIKE ?)';
     $like = '%' . $search . '%';
     $params[] = $like;
     $params[] = $like;
     $params[] = $like;
-    $types .= 'sss';
+    $params[] = $like;
+    $types .= 'ssss';
 }
 if ($statusFilter !== '') {
     $where[] = 'status = ?';
@@ -23,7 +24,7 @@ if ($statusFilter !== '') {
 }
 $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
-$listSql = 'SELECT id, tracking_number, resident_name, category, status, date_filed FROM complaints' . $whereSql . ' ORDER BY id DESC';
+$listSql = 'SELECT id, tracking_number, resident_name, complainee_name, category, status, date_filed FROM complaints' . $whereSql . ' ORDER BY id DESC';
 if ($params) {
     $stmt = $conn->prepare($listSql);
     $stmt->bind_param($types, ...$params);
@@ -74,7 +75,7 @@ $complaintAlerts = $conn->query("SELECT tracking_number, category, resident_name
         <?php renderNotice([
             'created' => 'Complaint record created.',
             'updated' => 'Complaint record updated.',
-            'deleted' => 'Complaint record deleted.',
+            'delete_disabled' => 'Deleting complaint records is disabled. You can view or edit the record instead.',
         ]); ?>
 
         <!-- CARDS -->
@@ -203,6 +204,8 @@ $complaintAlerts = $conn->query("SELECT tracking_number, category, resident_name
 
                             <th>Resident</th>
 
+                            <th>Complainee</th>
+
                             <th>Category</th>
 
                             <th>Status</th>
@@ -220,7 +223,7 @@ $complaintAlerts = $conn->query("SELECT tracking_number, category, resident_name
                         <?php if ($complaints->num_rows === 0): ?>
 
                             <tr>
-                                <td colspan="7">No complaint records found.</td>
+                                <td colspan="8">No complaint records found.</td>
                             </tr>
 
                         <?php else: $index = 1; ?>
@@ -235,6 +238,8 @@ $complaintAlerts = $conn->query("SELECT tracking_number, category, resident_name
 
                                     <td><?php echo h($row['resident_name']); ?></td>
 
+                                    <td><?php echo h($row['complainee_name']); ?></td>
+
                                     <td><?php echo h($row['category']); ?></td>
 
                                     <td>
@@ -247,8 +252,11 @@ $complaintAlerts = $conn->query("SELECT tracking_number, category, resident_name
 
                                     <td>
 
-                                        <a href="complaint_form.php?id=<?php echo (int)$row['id']; ?>" class="btn btn-sm btn-primary">
+                                        <a href="record_view.php?type=complaint&amp;id=<?php echo (int)$row['id']; ?>" class="btn btn-sm btn-primary">
                                             View
+                                        </a>
+                                        <a href="complaint_form.php?id=<?php echo (int)$row['id']; ?>&amp;edit=1" class="btn btn-sm btn-outline-secondary">
+                                            Edit
                                         </a>
 
                                     </td>

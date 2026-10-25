@@ -65,6 +65,7 @@ $residentName = trim(preg_replace('/\s+/', ' ', implode(' ', array_filter([
     $resident['last_name'] ?? '',
     $resident['suffix'] ?? '',
 ]))));
+$civilStatus = trim($resident['civil_status'] ?? '') ?: '___';
 
 if ($role === 'resident') {
     $currentResident = currentResident($conn);
@@ -619,6 +620,195 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
                 page-break-after: always;
             }
         }
+
+        @media screen and (max-width: 768px) {
+            body {
+                padding: 12px;
+            }
+
+            .certificate-container {
+                width: 100%;
+                height: auto;
+                min-height: 0;
+                margin: 12px auto;
+                padding: 24px 18px;
+                overflow: visible;
+            }
+
+            .certificate-watermark {
+                width: min(80vw, 5.5in);
+                height: min(80vw, 5.5in);
+            }
+
+            .certificate-header {
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 22px;
+            }
+
+            .logo-section {
+                width: 56px;
+                flex: 0 0 56px;
+            }
+
+            .logo-section img {
+                max-width: 56px;
+            }
+
+            .header-text h1,
+            .header-text p {
+                font-size: 9px;
+                overflow-wrap: anywhere;
+            }
+
+            .header-text h2 {
+                font-size: 12px;
+                overflow-wrap: anywhere;
+            }
+
+            .certificate-title {
+                margin: 20px 0;
+                padding: 12px 4px;
+            }
+
+            .certificate-title h3 {
+                font-size: 19px;
+                letter-spacing: 1.5px;
+                overflow-wrap: anywhere;
+            }
+
+            .certificate-body {
+                font-size: 14px;
+                line-height: 1.7;
+                overflow-wrap: anywhere;
+            }
+
+            .certificate-body p {
+                text-indent: 20px;
+            }
+
+            .certificate-footer {
+                align-items: center;
+                flex-direction: column;
+                gap: 24px;
+                margin-top: 28px;
+            }
+
+            .certificate-footer > div:first-child,
+            .signature-section {
+                width: 100% !important;
+            }
+
+            .picture-placeholder {
+                margin: 0 auto;
+            }
+
+            .footer-info,
+            .note {
+                overflow-wrap: anywhere;
+            }
+
+            .print-actions {
+                width: 100%;
+                padding: 0 4px 12px;
+            }
+
+            .print-button {
+                flex: 1 1 190px;
+                margin: 0;
+                padding: 12px 16px;
+            }
+
+            .good-moral-certificate {
+                grid-template-columns: minmax(0, 1fr);
+                grid-template-rows: auto auto 1fr;
+                gap: 18px;
+                padding: 18px 14px 24px;
+            }
+
+            .good-moral-header {
+                grid-template-columns: 52px minmax(0, 1fr) 52px;
+                gap: 8px;
+                padding: 0 0 14px;
+            }
+
+            .good-moral-header img {
+                width: 52px;
+                height: 52px;
+            }
+
+            .good-moral-header p {
+                font-size: 10px;
+                overflow-wrap: anywhere;
+            }
+
+            .good-moral-header h1 {
+                font-size: 15px;
+                overflow-wrap: anywhere;
+            }
+
+            .good-moral-header h2 {
+                font-size: 12px;
+            }
+
+            .good-moral-certificate .officials-column {
+                border-right: 0;
+                border-bottom: 3px double #111;
+                padding: 0 0 14px;
+            }
+
+            .good-moral-certificate .officials-column h4 {
+                margin: 8px 0 14px;
+                font-size: 16px;
+            }
+
+            .official-entry {
+                margin-bottom: 10px;
+                font-size: 14px;
+            }
+
+            .officials-note {
+                margin-top: 10px;
+                font-size: 11px;
+            }
+
+            .good-moral-main {
+                min-width: 0;
+                padding: 0;
+                overflow: visible;
+            }
+
+            .good-moral-title {
+                margin: 8px 0 20px;
+                font-size: 24px;
+                letter-spacing: 3px;
+            }
+
+            .good-moral-body {
+                flex: initial;
+                justify-content: flex-start;
+                gap: 18px;
+                font-size: 15px;
+                line-height: 1.6;
+                overflow-wrap: anywhere;
+            }
+
+            .good-moral-body .indent {
+                text-indent: 20px;
+            }
+
+            .good-moral-signature {
+                width: min(100%, 2.4in);
+                margin: 28px 0 0 auto;
+            }
+
+            .good-moral-footer {
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-top: 24px;
+                overflow-wrap: anywhere;
+            }
+        }
     </style>
 </head>
 <body>
@@ -659,10 +849,9 @@ $mailtoHref = $emailAddress !== '' ? 'mailto:' . rawurlencode($emailAddress) . '
 
             <div class="good-moral-body">
                 <p><strong>TO WHOM IT MAY CONCERN:</strong></p>
-                <p class="indent"><strong>THIS IS TO CERTIFY</strong> that <u><?php echo h($residentName); ?></u>, <?php echo h($resident['age'] ?? '___'); ?> years of age, single/married/widow(er), Filipino citizen, and a resident of the above-named person for all legal purposes it may serve.</p>
-                <p class="indent">This Certification is being issued upon this request of the above-named person for all legal purposes it may serve.</p>
-                <p class="indent">This is to certify further that <u><?php echo h($residentName); ?></u> is bona fide resident of <?php echo h($settings['barangay_name'] ?? 'Barangay'); ?>, Municipality of <?php echo h($settings['municipality'] ?? 'Municipality'); ?>, <?php echo h($settings['province'] ?? 'Province'); ?>, and a person of <strong>GOOD MORAL CHARACTER</strong>, peaceful and law-abiding citizen.</p>
-                <p class="indent">This Certification is being issued upon this request of the above-named person for all legal purposes it may serve.</p>
+                <p class="indent"><strong>THIS IS TO CERTIFY</strong> that <u><?php echo h($residentName); ?></u>, <?php echo h($resident['age'] ?? '___'); ?> years of age, <?php echo h($civilStatus); ?>, and a Filipino citizen, is a bona fide resident of <?php echo h($settings['barangay_name'] ?? 'Barangay'); ?>, Municipality of <?php echo h($settings['municipality'] ?? 'Municipality'); ?>, Province of <?php echo h($settings['province'] ?? 'Province'); ?>, Philippines.</p>
+                <p class="indent">This is further to certify that the above-named person is of <strong>GOOD MORAL CHARACTER</strong>, peaceful, and law-abiding citizen.</p>
+                <p class="indent">This certification is issued upon the request of the above-named person for whatever legal purpose it may serve.</p>
                 <p class="indent">Issued this <span class="issued-date-value"><?php echo h(date('d', $printedTimestamp)); ?></span> day of <span class="issued-date-value"><?php echo h(date('F', $printedTimestamp)); ?></span> <span class="issued-date-value"><?php echo h(date('Y', $printedTimestamp)); ?></span> at <?php echo h($settings['barangay_name'] ?? 'Barangay'); ?>, <?php echo h($settings['municipality'] ?? 'Municipality'); ?>, <?php echo h($settings['province'] ?? 'Province'); ?>, Philippines.</p>
             </div>
 

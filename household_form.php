@@ -18,14 +18,8 @@ if ($id > 0) {
     }
 }
 
-// Delete
 if ($household && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
-    $stmt = $conn->prepare('DELETE FROM households WHERE id = ?');
-    $stmt->bind_param('i', $id);
-    $stmt->execute();
-    $stmt->close();
-    logActivity($conn, 'deleted', 'households', 'Deleted household record.', $id);
-    header('Location: household.php?msg=deleted');
+    header('Location: household.php?msg=delete_disabled');
     exit;
 }
 
@@ -231,13 +225,6 @@ $statusOptions = ['Active', 'Archived'];
                         <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
                         <span>Edit</span>
                     </a>
-                                        <form method="post" action="household_form.php?id=<?php echo $id; ?>" class="d-inline"
-                                                    onsubmit="return confirm('Delete this household record?');">
-                                                <?php echo csrfField(); ?>
-                                                <input type="hidden" name="action" value="delete">
-                        <i class="fa-solid fa-trash" aria-hidden="true"></i>
-                                                <button type="submit" class="btn-danger"><span>Delete</span></button>
-                                        </form>
                     <a href="household.php" class="btn-cancel">
                         <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
                         <span>Back to Household</span>

@@ -910,9 +910,20 @@ $savedBackups = $conn->query('SELECT id, backup_date, LENGTH(sql_dump) AS size_b
                         </button>
                     </form>
 
-                    <p class="mb-1"><strong>Automatic backups</strong> <small class="text-muted">(daily at 5:00 PM, last <?php echo AUTO_BACKUPS_KEPT; ?> kept)</small></p>
-                    <?php if ($savedBackups): ?>
-                        <ul class="list-unstyled mb-3">
+                    <details class="automatic-backups mb-3">
+                        <summary class="automatic-backups-summary">
+                            <span>
+                                <strong>Automatic backups</strong>
+                                <small class="text-muted"><?php echo count($savedBackups); ?> of <?php echo AUTO_BACKUPS_KEPT; ?> saved</small>
+                            </span>
+                            <span class="automatic-backups-toggle">
+                                <span class="automatic-backups-toggle-closed">View history</span>
+                                <span class="automatic-backups-toggle-open">Hide history</span>
+                                <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+                            </span>
+                        </summary>
+                        <?php if ($savedBackups): ?>
+                        <ul class="list-unstyled automatic-backups-list">
                             <?php foreach ($savedBackups as $saved): ?>
                                 <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
                                     <span><?php echo h(date('M d, Y', strtotime($saved['backup_date']))); ?> <small class="text-muted"><?php echo h(number_format($saved['size_bytes'] / 1024, 1)); ?> KB</small></span>
@@ -927,7 +938,10 @@ $savedBackups = $conn->query('SELECT id, backup_date, LENGTH(sql_dump) AS size_b
                                 </li>
                             <?php endforeach; ?>
                         </ul>
-                    <?php endif; ?>
+                        <?php else: ?>
+                            <p class="automatic-backups-empty mb-0">No automatic backups yet.</p>
+                        <?php endif; ?>
+                    </details>
 
                     <form action="settings.php" method="POST" enctype="multipart/form-data" class="d-grid gap-2"
                         onsubmit="return confirm('Restoring replaces ALL current records with the backup. Continue?');">

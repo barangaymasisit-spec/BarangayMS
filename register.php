@@ -20,7 +20,6 @@ $old = [
     'last_name'  => '',
     'resident_number' => '',
     'username'   => '',
-    'address'    => '',
     'email'      => '',
 ];
 
@@ -34,7 +33,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $old['last_name']  = trim($_POST['last_name'] ?? '');
     $old['resident_number'] = trim($_POST['resident_number'] ?? '');
     $old['username']   = trim($_POST['username'] ?? '');
-    $old['address']    = trim($_POST['address'] ?? '');
     $old['email']      = trim($_POST['email'] ?? '');
     $password          = $_POST['password'] ?? '';
     $confirmPassword   = $_POST['confirm_password'] ?? '';
@@ -113,8 +111,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
                     $role = 'resident';
                     $status = 'Active';
-                    $stmt = $conn->prepare('INSERT INTO users (first_name, last_name, username, email, password_hash, role, status, address, resident_id, email_verify_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)');
-                    $stmt->bind_param('ssssssssi', $old['first_name'], $old['last_name'], $old['username'], $old['email'], $passwordHash, $role, $status, $old['address'], $residentId);
+                    $stmt = $conn->prepare('INSERT INTO users (first_name, last_name, username, email, password_hash, role, status, resident_id, email_verify_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)');
+                    $stmt->bind_param('sssssssi', $old['first_name'], $old['last_name'], $old['username'], $old['email'], $passwordHash, $role, $status, $residentId);
                     try {
                         $inserted = $stmt->execute();
                         $duplicate = false;
@@ -259,20 +257,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     placeholder="Username"
                     value="<?php echo h($old['username']); ?>"
                     required>
-            </div>
-
-            <!-- Address -->
-            <div class="input-box">
-                <label for="address" class="sr-only">Address</label>
-
-                <i class="fa-solid fa-location-dot"></i>
-
-                <input
-                    type="text"
-                    id="address"
-                    name="address"
-                    placeholder="Address (Optional)"
-                    value="<?php echo h($old['address']); ?>">
             </div>
 
             <!-- Email -->

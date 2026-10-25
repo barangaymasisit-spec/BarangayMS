@@ -979,3 +979,185 @@ a.btn-delete{
     color:#0B4A9E;
     background:#f6f9ff;
 }
+
+/* ==========================================================
+   INLINE HOUSEHOLD DETAILS
+========================================================== */
+
+.household-details-card{
+    margin-top:24px;
+    padding:24px;
+    background:#fff;
+    border:1px solid #e3ebf6;
+    border-radius:16px;
+    box-shadow:0 5px 20px rgba(0,0,0,.08);
+    scroll-margin-top:24px;
+}
+
+.household-details-heading,
+.household-families-heading{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+}
+
+.household-details-heading{
+    margin-bottom:18px;
+}
+
+.household-details-heading h2,
+.household-families-heading h3{
+    color:#0B4A9E;
+    font-size:20px;
+}
+
+.household-details-heading h2 i,
+.household-families-heading h3 i{
+    margin-right:7px;
+}
+
+.household-back-link,
+.household-full-record-link{
+    color:#0B4A9E;
+    font-weight:600;
+    text-decoration:none;
+}
+
+.household-back-link{
+    padding:8px 12px;
+    border-radius:8px;
+    background:#f0f5fc;
+    white-space:nowrap;
+}
+
+.household-back-link:hover,
+.household-full-record-link:hover{
+    color:#08366f;
+    text-decoration:underline;
+}
+
+.household-detail-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:0 24px;
+    padding:16px 20px;
+    background:#f3f7fd;
+    border:1px solid #dce7f6;
+    border-radius:12px;
+}
+
+.household-detail-grid > div{
+    display:grid;
+    grid-template-columns:minmax(130px,1fr) 1.4fr;
+    gap:12px;
+    padding:9px 0;
+    border-bottom:1px solid #e2eaf5;
+}
+
+.household-detail-grid dt{
+    color:#35506f;
+    font-weight:600;
+}
+
+.household-detail-grid dd{
+    color:#26384d;
+    overflow-wrap:anywhere;
+}
+
+.household-families-heading{
+    margin:22px 0 14px;
+}
+
+.household-family-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:16px;
+}
+
+.household-family-card{
+    min-width:0;
+    padding:12px;
+    border:1px solid #d6e2f4;
+    border-radius:12px;
+}
+
+.household-family-card h4{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    margin:-12px -12px 12px;
+    padding:12px;
+    color:#0B4A9E;
+    background:#eaf2ff;
+    border-radius:11px 11px 0 0;
+}
+
+.household-family-card h4 span{
+    flex:none;
+    padding:4px 9px;
+    color:#fff;
+    background:#0B4A9E;
+    border-radius:20px;
+    font-size:12px;
+    font-weight:500;
+}
+
+.household-members-table{
+    min-width:620px;
+}
+
+.household-selected-row{
+    background:#edf4ff;
+}
+
+.household-members-table thead{
+    background:#f0f3f8;
+}
+
+.household-members-table thead th{
+    padding:10px;
+    color:#334155;
+    font-size:12px;
+}
+
+.household-members-table tbody td{
+    padding:10px;
+    font-size:13px;
+}
+
+.household-no-members{
+    padding:16px;
+    color:#52657d;
+    background:#f3f7fd;
+    border-radius:10px;
+}
+
+@media(max-width:768px){
+    .household-details-card{
+        padding:18px;
+    }
+
+    .household-detail-grid,
+    .household-family-grid{
+        grid-template-columns:1fr;
+    }
+}
+
+@media(max-width:576px){
+    .household-details-heading,
+    .household-families-heading{
+        align-items:flex-start;
+        flex-direction:column;
+    }
+
+    .household-detail-grid{
+        padding:12px;
+    }
+
+    .household-detail-grid > div{
+        grid-template-columns:1fr;
+        gap:3px;
+    }
+}

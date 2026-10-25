@@ -12,40 +12,9 @@ $entityFilter = trim($_GET['entity'] ?? '');
 $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 15;
 
-$scopeWhere = '1 = 1';
-if ($role === 'staff') {
-    $scopeWhere = "a.entity IN ('residents', 'certificates', 'appointments', 'complaints', 'announcements')";
-} elseif ($role === 'health_worker') {
-    $scopeWhere = "a.entity = 'residents'";
-} elseif ($role === 'security_force') {
-    $scopeWhere = "a.entity = 'emergency_alerts'";
-} elseif ($role === 'resident') {
-    $scopeWhere = 'a.user_id = ?';
-    $scopeParams = [$userId];
-    $scopeTypes = 'i';
-
-    $resident = currentResident($conn);
-    if ($resident) {
-        $residentId = (int)$resident['id'];
-        $scopeWhere = "(a.user_id = ? OR (
-            (a.entity = 'certificates' AND EXISTS (
-                SELECT 1 FROM certificates c
-                WHERE c.id = a.related_id AND (c.resident_id = ? OR c.requested_by_user_id = ?)
-            )) OR
-            (a.entity = 'appointments' AND EXISTS (
-                SELECT 1 FROM appointments ap WHERE ap.id = a.related_id AND ap.resident_id = ?
-            )) OR
-            (a.entity = 'complaints' AND EXISTS (
-                SELECT 1 FROM complaints co WHERE co.id = a.related_id AND co.resident_id = ?
-            )) OR
-            (a.entity = 'emergency_alerts' AND EXISTS (
-                SELECT 1 FROM emergency_alerts ea WHERE ea.id = a.related_id AND ea.resident_id = ?
-            ))
-        ))";
-        $scopeParams = [$userId, $residentId, $userId, $residentId, $residentId, $residentId];
-        $scopeTypes = 'iiiiii';
-    }
-}
+$scopeWhere = 'a.user_id = ?';
+$scopeParams = [$userId];
+$scopeTypes = 'i';
 
 $where = [$scopeWhere];
 $params = $scopeParams;
@@ -54,8 +23,8 @@ $types = $scopeTypes;
 if ($search !== '') {
     $like = '%' . $search . '%';
     $where[] = '(a.details LIKE ? OR a.entity LIKE ? OR a.action LIKE ? OR CONCAT(COALESCE(u.first_name, ""), " ", COALESCE(u.last_name, "")) LIKE ?)';
-    $params = [$like, $like, $like, $like];
-    $types = 'ssss';
+    array_push($params, $like, $like, $like, $like);
+    $types .= 'ssss';
 }
 if ($actionFilter !== '') {
     $where[] = 'a.action = ?';
@@ -208,10 +177,16 @@ $historySubtitle = match ($role) {
                     <span class="page-status">Page <?php echo $page; ?> of <?php echo $totalPages; ?></span>
                     <div class="btn-group">
                         <?php if ($page > 1): ?>
-                            <a class="btn btn-sm btn-outline-secondary" href="audit.php?<?php echo http_build_query(array_merge($queryBase, ['page' => $page - 1])); ?>">Previous</a>
+                            <a class="btn btn-sm btn-outline-secondary" href="audit.php?<?php echo http_build_query(array_merge($queryBase, ['page' => $page - 1])); ?>">
+                                <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+                                <span>Previous</span>
+                            </a>
                         <?php endif; ?>
                         <?php if ($page < $totalPages): ?>
-                            <a class="btn btn-sm btn-outline-secondary" href="audit.php?<?php echo http_build_query(array_merge($queryBase, ['page' => $page + 1])); ?>">Next</a>
+                            <a class="btn btn-sm btn-outline-secondary" href="audit.php?<?php echo http_build_query(array_merge($queryBase, ['page' => $page + 1])); ?>">
+                                <span>Next</span>
+                                <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+                            </a>
                         <?php endif; ?>
                     </div>
                 </div>

@@ -1,5 +1,18 @@
 <?php
 require_once __DIR__ . '/session.php';
+if (
+    ($_SESSION['role'] ?? '') === 'admin'
+    && !empty($_SESSION['admin_session_token'])
+) {
+    require_once __DIR__ . '/db.php';
+    if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
+        try {
+            releaseAdminSessionLock($conn, (int)$_SESSION['user_id'], (string)$_SESSION['admin_session_token']);
+        } catch (mysqli_sql_exception $exception) {
+            error_log('Could not release administrator session lock during logout: ' . $exception->getMessage());
+        }
+    }
+}
 clearPersistentAuthCookie();
 $_SESSION = [];
 if (ini_get('session.use_cookies')) {

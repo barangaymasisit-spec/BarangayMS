@@ -3,6 +3,9 @@ require_once __DIR__ . '/layout.php';
 $resident = null;
 $error = '';
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$returnPage = max(1, (int)($_POST['return_page'] ?? $_GET['page'] ?? 1));
+$returnSearch = trim($_POST['return_search'] ?? $_GET['search'] ?? '');
+$returnStatusFilter = trim($_POST['return_status_filter'] ?? $_GET['status_filter'] ?? 'all');
 if ($id > 0) {
     $stmt = $conn->prepare('SELECT residents.*, ' . householdMembersSql('residents.household_id') . ' AS live_household_members FROM residents WHERE id = ?');
     $stmt->bind_param('i', $id);
@@ -48,10 +51,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data['house_number'] = trim($_POST['houseNumber'] ?? $_POST['house_number'] ?? '');
     $data['street'] = trim($_POST['street'] ?? '');
     $data['purok'] = trim($_POST['purok'] ?? '');
-    $data['barangay'] = trim($_POST['barangay'] ?? '');
-    $data['municipality'] = trim($_POST['municipality'] ?? '');
-    $data['province'] = trim($_POST['province'] ?? '');
-    $data['zip_code'] = trim($_POST['zipCode'] ?? $_POST['zip_code'] ?? '');
     $data['length_residency'] = trim($_POST['lengthResidency'] ?? '');
     $data['residency_type'] = trim($_POST['residencyType'] ?? '');
     $data['household_id'] = trim($_POST['householdId'] ?? '');
@@ -174,7 +173,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute();
         $stmt->close();
         logActivity($conn, 'updated', 'residents', 'Updated resident profile.', (int)$postId);
-        header('Location: residents.php?msg=updated');
+        $returnQuery = http_build_query([
+            'msg' => 'updated',
+            'search' => $returnSearch,
+            'status_filter' => $returnStatusFilter,
+            'page' => $returnPage,
+        ]);
+        header('Location: residents.php?' . $returnQuery);
         exit;
     } elseif ($error === '') {
         // Insert new resident
@@ -241,6 +246,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <form method="post" action="resident_form.php<?php echo $resident ? '?id=' . (int)$resident['id'] . '&edit=1' : ''; ?>" enctype="multipart/form-data">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="id" value="<?php echo $resident ? (int)$resident['id'] : 0; ?>">
+                <?php if ($resident): ?>
+                    <input type="hidden" name="return_page" value="<?php echo $returnPage; ?>">
+                    <input type="hidden" name="return_search" value="<?php echo h($returnSearch); ?>">
+                    <input type="hidden" name="return_status_filter" value="<?php echo h($returnStatusFilter); ?>">
+                <?php endif; ?>
 
                 <div class="resident-layout">
 
@@ -315,24 +325,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <input type="text" id="street" name="street" value="<?php echo $resident ? h($resident['street']) : ''; ?>">
                                 </div>
                                 <div>
-                                    <label for="barangay">Barangay</label>
-                                    <input type="text" id="barangay" name="barangay" value="<?php echo $resident ? h($resident['barangay']) : ''; ?>">
-                                </div>
-                                <div>
-                                    <label for="municipality">Municipality</label>
-                                    <input type="text" id="municipality" name="municipality" value="<?php echo $resident ? h($resident['municipality']) : ''; ?>">
-                                </div>
-                                <div>
                                     <label for="purok">Purok / Sitio</label>
                                     <input type="text" id="purok" name="purok" value="<?php echo $resident ? h($resident['purok']) : ''; ?>">
-                                </div>
-                                <div>
-                                    <label for="province">Province</label>
-                                    <input type="text" id="province" name="province" value="<?php echo $resident ? h($resident['province']) : ''; ?>">
-                                </div>
-                                <div>
-                                    <label for="zipCode">ZIP Code</label>
-                                    <input type="text" id="zipCode" name="zipCode" value="<?php echo $resident ? h($resident['zip_code']) : ''; ?>">
                                 </div>
                                 <div>
                                     <label for="dateMovedIn">Date Moved In</label>
@@ -457,8 +451,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <input type="text" id="household_id" name="householdId" value="<?php echo $resident ? h($resident['household_id']) : ''; ?>">
                                 </div>
                                 <div>
-                                    <label for="household_head">Household Head</label>
+                                    <label for="household_head">Household Head / Family Head</label>
                                     <input type="text" id="household_head" name="householdHead" value="<?php echo $resident ? h($resident['household_head']) : ''; ?>">
+                                    <small class="field-help">Residents with the same household head are grouped as one family.</small>
+                                </div>
+                                <div>
+                                    <label for="family_group">Family</label>
+                                    <input type="text" id="family_group" value="<?php echo !empty($resident['household_head']) ? h('Family of ' . $resident['household_head']) : ''; ?>" readonly>
                                 </div>
                                 <div>
                                     <label for="relationship_head">Relationship to Head</label>
@@ -645,7 +644,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </main>
 </div>
 <?php renderFooterScripts(); ?>
-<?php householdHeadLookup($conn, 'household_head', ['id' => 'household_id', 'members' => 'household_members', 'type' => 'household_type', 'income' => 'income_bracket', 'status' => 'resident_status']); ?>
+<?php householdHeadLookup($conn, 'household_head', ['id' => 'household_id', 'members' => 'household_members', 'type' => 'household_type', 'income' => 'income_bracket', 'status' => 'resident_status', 'family' => 'family_group']); ?>
 
 <script>
 // Auto-compute age from birthdate

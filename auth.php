@@ -9,6 +9,26 @@ if (isset($databaseConnectionError)) {
 }
 
 if (isset($_SESSION['user_id']) && !empty($_SESSION['role'])) {
+    if ($_SESSION['role'] === 'admin') {
+        $adminSessionToken = (string)($_SESSION['admin_session_token'] ?? '');
+        if ($adminSessionToken === '') {
+            $adminSessionToken = bin2hex(random_bytes(32));
+            $ownsAdminSession = claimAdminSessionLock($conn, (int)$_SESSION['user_id'], $adminSessionToken);
+            if ($ownsAdminSession) {
+                $_SESSION['admin_session_token'] = $adminSessionToken;
+            }
+        } else {
+            $ownsAdminSession = refreshAdminSessionLock($conn, (int)$_SESSION['user_id'], $adminSessionToken);
+        }
+        if (!$ownsAdminSession) {
+            clearPersistentAuthCookie();
+            $_SESSION = [];
+            session_destroy();
+            header('Location: auth.php?admin_session=1');
+            exit;
+        }
+    }
+
     $redirectPage = ($_SESSION['role'] === 'resident') ? 'resident_dashboard.php' : 'dashboard.php';
     if (in_array($_SESSION['role'], ['admin', 'staff', 'health_worker', 'security_force', 'resident'], true)) {
         header('Location: ' . $redirectPage);
@@ -66,25 +86,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Only said after the correct password, so it reveals nothing to someone guessing.
                 $error = 'Please confirm your email first. Open the link we sent to your inbox (check Spam too).';
             } else {
-                clearFailedLogin($conn, $userId);
                 session_regenerate_id(true);
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['username'] = $user['username'];
-                $_SESSION['first_name'] = $user['first_name'];
-                $_SESSION['last_name'] = $user['last_name'];
-                $_SESSION['email'] = $user['email'];
-                $_SESSION['role'] = $user['role'];
-                $_SESSION['last_activity'] = time();
-                rememberPasswordFingerprint($user['password_hash']);
-                recordLoginAttempt($conn, $username, true);
-                if ($remember) {
-                    setPersistentAuthCookie($user);
-                } else {
-                    clearPersistentAuthCookie();
+                $adminSessionToken = '';
+                if ($user['role'] === 'admin') {
+                    $adminSessionToken = bin2hex(random_bytes(32));
+                    if (!claimAdminSessionLock($conn, $userId, $adminSessionToken)) {
+                        $adminSessionToken = '';
+                        $error = 'Another administrator is currently online. Please try again after they log out or their session expires.';
+                    }
                 }
-                logActivity($conn, 'login', 'users', 'User logged in successfully.', $userId, $userId);
-                header('Location: ' . ($user['role'] === 'resident' ? 'resident_dashboard.php' : 'dashboard.php'));
-                exit;
+
+                if ($error === '') {
+                    clearFailedLogin($conn, $userId);
+                    $_SESSION['user_id'] = $user['id'];
+                    $_SESSION['username'] = $user['username'];
+                    $_SESSION['first_name'] = $user['first_name'];
+                    $_SESSION['last_name'] = $user['last_name'];
+                    $_SESSION['email'] = $user['email'];
+                    $_SESSION['role'] = $user['role'];
+                    $_SESSION['last_activity'] = time();
+                    if ($adminSessionToken !== '') {
+                        $_SESSION['admin_session_token'] = $adminSessionToken;
+                    }
+                    rememberPasswordFingerprint($user['password_hash']);
+                    recordLoginAttempt($conn, $username, true);
+                    if ($remember) {
+                        setPersistentAuthCookie($user);
+                    } else {
+                        clearPersistentAuthCookie();
+                    }
+                    logActivity($conn, 'login', 'users', 'User logged in successfully.', $userId, $userId);
+                    header('Location: ' . ($user['role'] === 'resident' ? 'resident_dashboard.php' : 'dashboard.php'));
+                    exit;
+                }
             }
         }
     }
@@ -140,6 +174,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if (isset($_GET['expired'])): ?>
             <div class="error-message" role="alert">
                 You were logged out because the system was inactive for too long. Please log in again.
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($_GET['admin_session'])): ?>
+            <div class="error-message" role="alert">
+                This administrator session is no longer active. Please sign in again.
             </div>
         <?php endif; ?>
 

@@ -35,37 +35,46 @@ $role = $_SESSION['role'] ?? '';
 $canManage = in_array($role, ['admin', 'staff'], true);
 $userId = (int)($_SESSION['user_id'] ?? 0);
 $error = '';
-$formValues = ['title' => '', 'body' => '', 'expires_at' => ''];
+$staffRoleOptions = [
+    'admin' => 'Administrators',
+    'staff' => 'Barangay Officials',
+    'health_worker' => 'Health Workers',
+    'security_force' => 'Security Force',
+];
+$formValues = [
+    'title' => '',
+    'body' => '',
+    'status' => 'Active',
+    'audience' => 'all_residents',
+    'target_purok' => '',
+    'target_roles' => [],
+];
 $editingAnnouncement = null;
-
-function announcementExpiry(?string $value, string $today): ?string {
-    $value = trim((string)$value);
-    if ($value === '') {
-        return null;
-    }
-
-    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value, new DateTimeZone('Asia/Manila'));
-    $dateErrors = DateTimeImmutable::getLastErrors();
-    if (!$date || ($dateErrors !== false && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0)) || $date->format('Y-m-d') !== $value) {
-        throw new InvalidArgumentException('Enter a valid expiration date.');
-    }
-    if ($value < $today) {
-        throw new InvalidArgumentException('The expiration date cannot be in the past.');
-    }
-
-    return $value;
-}
 
 function announcementCharacterCount(string $value): int|false {
     $count = preg_match_all('/./us', $value);
     return $count === false ? false : $count;
 }
 
-$today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
+function announcementAudienceLabel(array $announcement, array $staffRoleOptions): string {
+    return match ($announcement['audience'] ?? '') {
+        'all_residents' => 'All Residents',
+        'purok' => 'Purok / Zone: ' . (string)($announcement['target_purok'] ?? ''),
+        'staff' => 'Staff: ' . implode(', ', array_map(
+            static fn($role) => $staffRoleOptions[$role] ?? $role,
+            array_filter(explode(',', (string)($announcement['target_roles'] ?? '')))
+        )),
+        default => 'Unspecified',
+    };
+}
+
+$purokResult = $conn->query("SELECT DISTINCT TRIM(purok) AS purok FROM residents WHERE TRIM(COALESCE(purok, '')) <> '' ORDER BY TRIM(purok)");
+$puroks = $purokResult->fetch_all(MYSQLI_ASSOC);
+
 $editId = $canManage ? max(0, (int)($_GET['edit'] ?? 0)) : 0;
 
 if ($editId > 0) {
-    $stmt = $conn->prepare('SELECT id, title, body, status, expires_at FROM announcements WHERE id = ? LIMIT 1');
+    $stmt = $conn->prepare('SELECT id, title, body, status, audience, target_purok, target_roles FROM announcements WHERE id = ? LIMIT 1');
     $stmt->bind_param('i', $editId);
     $stmt->execute();
     $editingAnnouncement = $stmt->get_result()->fetch_assoc() ?: null;
@@ -77,7 +86,10 @@ if ($editId > 0) {
     $formValues = [
         'title' => $editingAnnouncement['title'],
         'body' => $editingAnnouncement['body'],
-        'expires_at' => $editingAnnouncement['expires_at'] ?? '',
+        'status' => $editingAnnouncement['status'],
+        'audience' => $editingAnnouncement['audience'] ?? 'all_residents',
+        'target_purok' => $editingAnnouncement['target_purok'] ?? '',
+        'target_roles' => array_filter(explode(',', (string)($editingAnnouncement['target_roles'] ?? ''))),
     ];
 }
 
@@ -86,10 +98,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage) {
     $postedId = max(0, (int)($_POST['id'] ?? 0));
 
     if (in_array($action, ['create', 'save'], true)) {
+        $postedTargetRoles = is_array($_POST['target_roles'] ?? null) ? $_POST['target_roles'] : [];
         $formValues = [
             'title' => trim($_POST['title'] ?? ''),
             'body' => trim($_POST['body'] ?? ''),
-            'expires_at' => trim($_POST['expires_at'] ?? ''),
+            'status' => trim($_POST['status'] ?? 'Draft'),
+            'audience' => trim($_POST['audience'] ?? ''),
+            'target_purok' => trim($_POST['target_purok'] ?? ''),
+            'target_roles' => array_values(array_unique(array_filter(
+                $postedTargetRoles,
+                static fn($value) => is_string($value) && isset($staffRoleOptions[$value])
+            ))),
         ];
 
         $titleLength = announcementCharacterCount($formValues['title']);
@@ -100,39 +119,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage) {
             $error = 'Enter an announcement title of 1 to 200 characters.';
         } elseif ($formValues['body'] === '' || $bodyLength === false || $bodyLength > 12000) {
             $error = 'Enter announcement details of 1 to 12,000 characters.';
+        } elseif (!in_array($formValues['status'], ['Active', 'Archived', 'Draft'], true)) {
+            $error = 'Choose a valid announcement status.';
+        } elseif (!in_array($formValues['audience'], ['all_residents', 'purok', 'staff'], true)) {
+            $error = 'Choose a valid announcement audience.';
+        } elseif ($formValues['audience'] === 'purok' && $formValues['target_purok'] === '') {
+            $error = 'Choose or enter the Purok / Zone for this announcement.';
+        } elseif ($formValues['audience'] === 'staff' && $formValues['target_roles'] === []) {
+            $error = 'Select at least one staff role for this announcement.';
         } else {
-            try {
-                $expiryDate = announcementExpiry($formValues['expires_at'], $today);
-                if ($action === 'save' && $postedId > 0) {
-                    $stmt = $conn->prepare('UPDATE announcements SET title = ?, body = ?, expires_at = ? WHERE id = ?');
-                    $stmt->bind_param('sssi', $formValues['title'], $formValues['body'], $expiryDate, $postedId);
-                    $stmt->execute();
-                    $stmt->close();
-                    logActivity($conn, 'updated', 'announcements', 'Updated announcement: ' . $formValues['title'] . '.', $postedId);
-                    header('Location: announcements.php?msg=updated');
-                    exit;
-                }
-
-                if ($action === 'create') {
-                    $stmt = $conn->prepare("INSERT INTO announcements (title, body, status, created_by, published_at, expires_at) VALUES (?, ?, 'Published', ?, UTC_TIMESTAMP(), ?)");
-                    $stmt->bind_param('ssis', $formValues['title'], $formValues['body'], $userId, $expiryDate);
-                    $stmt->execute();
-                    $announcementId = (int)$stmt->insert_id;
-                    $stmt->close();
-                    logActivity($conn, 'published', 'announcements', 'Published announcement: ' . $formValues['title'] . '.', $announcementId);
-                    header('Location: announcements.php?msg=created');
-                    exit;
-                }
-            } catch (InvalidArgumentException $exception) {
-                $error = $exception->getMessage();
+            $targetRoles = implode(',', $formValues['target_roles']);
+            $targetPurok = $formValues['audience'] === 'purok' ? $formValues['target_purok'] : null;
+            $targetRolesValue = $formValues['audience'] === 'staff' ? $targetRoles : null;
+            if ($action === 'save') {
+                $stmt = $conn->prepare('UPDATE announcements SET title = ?, body = ?, status = ?, audience = ?, target_purok = ?, target_roles = ? WHERE id = ?');
+                $stmt->bind_param('ssssssi', $formValues['title'], $formValues['body'], $formValues['status'], $formValues['audience'], $targetPurok, $targetRolesValue, $postedId);
+                $stmt->execute();
+                $stmt->close();
+                logActivity($conn, 'updated', 'announcements', 'Updated announcement: ' . $formValues['title'] . '.', $postedId);
+                header('Location: announcements.php?msg=updated');
+                exit;
             }
+
+            $stmt = $conn->prepare('INSERT INTO announcements (title, body, status, audience, target_purok, target_roles, created_by, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())');
+            $stmt->bind_param('ssssssi', $formValues['title'], $formValues['body'], $formValues['status'], $formValues['audience'], $targetPurok, $targetRolesValue, $userId);
+            $stmt->execute();
+            $announcementId = (int)$stmt->insert_id;
+            $stmt->close();
+            logActivity($conn, strtolower($formValues['status']), 'announcements', 'Created announcement: ' . $formValues['title'] . '.', $announcementId);
+            header('Location: announcements.php?msg=created');
+            exit;
         }
     } elseif (in_array($action, ['archive', 'publish'], true) && $postedId > 0) {
-        $newStatus = $action === 'archive' ? 'Archived' : 'Published';
+        $newStatus = $action === 'archive' ? 'Archived' : 'Active';
         if ($action === 'publish') {
-            $stmt = $conn->prepare("UPDATE announcements SET status = ?, published_at = UTC_TIMESTAMP() WHERE id = ? AND status <> 'Published'");
+            $stmt = $conn->prepare("UPDATE announcements SET status = ?, published_at = UTC_TIMESTAMP() WHERE id = ? AND status <> 'Active'");
         } else {
-            $stmt = $conn->prepare("UPDATE announcements SET status = ? WHERE id = ? AND status = 'Published'");
+            $stmt = $conn->prepare("UPDATE announcements SET status = ? WHERE id = ? AND status = 'Active'");
         }
         $stmt->bind_param('si', $newStatus, $postedId);
         $stmt->execute();
@@ -144,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage) {
                 $conn,
                 $action === 'archive' ? 'archived' : 'published',
                 'announcements',
-                $action === 'archive' ? 'Archived announcement.' : 'Republished announcement.',
+                $action === 'archive' ? 'Archived announcement.' : 'Activated announcement.',
                 $postedId
             );
             header('Location: announcements.php?msg=' . ($action === 'archive' ? 'archived' : 'published'));
@@ -157,18 +180,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage) {
 }
 
 $showForm = $canManage && ($editId > 0 || isset($_GET['create']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && $error !== ''));
-$activeStmt = $conn->prepare("SELECT a.id, a.title, a.body, a.published_at, a.expires_at, CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS author FROM announcements a LEFT JOIN users u ON u.id = a.created_by WHERE a.status = 'Published' AND (a.expires_at IS NULL OR a.expires_at >= ?) ORDER BY a.published_at DESC, a.id DESC");
-$activeStmt->bind_param('s', $today);
+$activeSql = "SELECT a.id, a.title, a.body, a.status, a.audience, a.target_purok, a.published_at, CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS author FROM announcements a LEFT JOIN users u ON u.id = a.created_by WHERE a.status = 'Active'";
+$resident = $role === 'resident' ? currentResident($conn) : null;
+[$audienceSql, $activeParams, $activeTypes] = announcementAudienceFilter((string)$role, $resident);
+$activeSql .= ' AND (' . $audienceSql . ')';
+$activeSql .= ' ORDER BY a.published_at DESC, a.id DESC';
+$activeStmt = $conn->prepare($activeSql);
+if ($activeParams) {
+    bindPreparedParams($activeStmt, $activeTypes, $activeParams);
+}
 $activeStmt->execute();
 $activeAnnouncements = $activeStmt->get_result();
 
 $allAnnouncements = null;
 if ($canManage) {
-    $allAnnouncements = $conn->query("SELECT a.id, a.title, a.status, a.published_at, a.expires_at, CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS author FROM announcements a LEFT JOIN users u ON u.id = a.created_by ORDER BY a.created_at DESC, a.id DESC");
+    $allAnnouncements = $conn->query("SELECT a.id, a.title, a.status, a.audience, a.target_purok, a.target_roles, a.published_at, CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS author FROM announcements a LEFT JOIN users u ON u.id = a.created_by ORDER BY a.created_at DESC, a.id DESC");
 }
 
-$activeCountStmt = $conn->prepare("SELECT COUNT(*) FROM announcements WHERE status = 'Published' AND (expires_at IS NULL OR expires_at >= ?)");
-$activeCountStmt->bind_param('s', $today);
+$activeCountSql = "SELECT COUNT(*) FROM announcements a WHERE a.status = 'Active'";
+$activeCountSql .= ' AND (' . $audienceSql . ')';
+$activeCountStmt = $conn->prepare($activeCountSql);
+if ($activeParams) {
+    bindPreparedParams($activeCountStmt, $activeTypes, $activeParams);
+}
 $activeCountStmt->execute();
 $activeCount = (int)$activeCountStmt->get_result()->fetch_row()[0];
 $activeCountStmt->close();
@@ -196,10 +230,10 @@ $totalCount = $canManage ? (int)($conn->query('SELECT COUNT(*) FROM announcement
             : '';
         renderTopbar('Announcements', 'News and notices from your barangay office.', 'compact', ['clock' => true, 'dashboardHeader' => true, 'actions' => $newAnnouncementAction]);
         renderNotice([
-            'created' => 'Announcement published and shared with all roles.',
+            'created' => 'Announcement created.',
             'updated' => 'Announcement updated.',
-            'archived' => 'Announcement archived and removed from the public board.',
-            'published' => 'Announcement republished.',
+            'archived' => 'Announcement archived.',
+            'published' => 'Announcement activated.',
             'missing' => 'That announcement no longer exists.',
         ]);
         ?>
@@ -232,15 +266,40 @@ $totalCount = $canManage ? (int)($conn->query('SELECT COUNT(*) FROM announcement
                     <input id="announcementTitle" name="title" type="text" maxlength="200" required value="<?php echo h($formValues['title']); ?>" placeholder="Give your announcement a clear headline">
                     <label for="announcementBody">Details</label>
                     <textarea id="announcementBody" name="body" rows="5" maxlength="12000" required placeholder="Share the details people need to know…"><?php echo h($formValues['body']); ?></textarea>
+                    <label for="announcementStatus">Status</label>
+                    <select id="announcementStatus" name="status" required>
+                        <?php foreach (['Active', 'Archived', 'Draft'] as $statusOption): ?>
+                            <option value="<?php echo h($statusOption); ?>"<?php echo $formValues['status'] === $statusOption ? ' selected' : ''; ?>><?php echo h($statusOption); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <label for="announcementAudience">Who should see this announcement?</label>
+                    <select id="announcementAudience" name="audience" required>
+                        <option value="all_residents"<?php echo $formValues['audience'] === 'all_residents' ? ' selected' : ''; ?>>All Residents</option>
+                        <option value="purok"<?php echo $formValues['audience'] === 'purok' ? ' selected' : ''; ?>>Specific Purok / Zone</option>
+                        <option value="staff"<?php echo $formValues['audience'] === 'staff' ? ' selected' : ''; ?>>Admin / Barangay Staff Only</option>
+                    </select>
+                    <div data-announcement-audience="purok">
+                        <label for="announcementPurok">Purok / Zone</label>
+                        <select id="announcementPurok" name="target_purok">
+                            <option value="">Select Purok / Zone</option>
+                            <?php foreach ($puroks as $purokOption): ?>
+                                <option value="<?php echo h($purokOption['purok']); ?>"<?php echo $formValues['target_purok'] === $purokOption['purok'] ? ' selected' : ''; ?>><?php echo h($purokOption['purok']); ?></option>
+                            <?php endforeach; ?>
+                            <?php if ($formValues['target_purok'] !== '' && !in_array($formValues['target_purok'], array_column($puroks, 'purok'), true)): ?>
+                                <option value="<?php echo h($formValues['target_purok']); ?>" selected><?php echo h($formValues['target_purok']); ?></option>
+                            <?php endif; ?>
+                        </select>
+                    </div>
+                    <fieldset class="announcement-role-targets" data-announcement-audience="staff">
+                        <legend>Staff roles to notify</legend>
+                        <?php foreach ($staffRoleOptions as $staffRole => $staffRoleLabel): ?>
+                            <label><input type="checkbox" name="target_roles[]" value="<?php echo h($staffRole); ?>"<?php echo in_array($staffRole, $formValues['target_roles'], true) ? ' checked' : ''; ?>> <?php echo h($staffRoleLabel); ?></label>
+                        <?php endforeach; ?>
+                    </fieldset>
                     <div class="announcement-form-footer">
-                        <div>
-                            <label for="announcementExpiry">Optional end date</label>
-                            <input id="announcementExpiry" name="expires_at" type="date" min="<?php echo h($today); ?>" value="<?php echo h($formValues['expires_at']); ?>">
-                            <small>Leave blank to keep the announcement active until it is archived.</small>
-                        </div>
                         <button type="submit" class="announcement-submit-button">
                             <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
-                            <?php echo $editingAnnouncement ? 'Save changes' : 'Publish to everyone'; ?>
+                            <?php echo $editingAnnouncement ? 'Save changes' : 'Save announcement'; ?>
                         </button>
                     </div>
                 </form>
@@ -255,7 +314,7 @@ $totalCount = $canManage ? (int)($conn->query('SELECT COUNT(*) FROM announcement
             <span class="announcement-count"><i class="fa-regular fa-newspaper" aria-hidden="true"></i> <?php echo $activeCount; ?> active</span>
         </div>
 
-        <section class="announcement-list" aria-label="Published announcements">
+        <section class="announcement-list" aria-label="Active announcements">
             <?php if ($activeAnnouncements->num_rows === 0): ?>
                 <div class="announcement-empty">
                     <span class="announcement-empty-icon"><i class="fa-regular fa-envelope-open" aria-hidden="true"></i></span>
@@ -266,10 +325,7 @@ $totalCount = $canManage ? (int)($conn->query('SELECT COUNT(*) FROM announcement
                 <?php while ($announcement = $activeAnnouncements->fetch_assoc()): ?>
                     <article class="announcement-card">
                         <div class="announcement-card-top">
-                            <span class="announcement-category"><i class="fa-solid fa-bullhorn" aria-hidden="true"></i> OFFICIAL NOTICE</span>
-                            <?php if (!empty($announcement['expires_at'])): ?>
-                                <span class="announcement-until">Until <?php echo h(date('M j, Y', strtotime($announcement['expires_at']))); ?></span>
-                            <?php endif; ?>
+                            <span class="announcement-category"><i class="fa-solid fa-bullhorn" aria-hidden="true"></i> <?php echo h(announcementAudienceLabel($announcement, $staffRoleOptions)); ?></span>
                         </div>
                         <h3><?php echo h($announcement['title']); ?></h3>
                         <div class="announcement-body"><?php echo nl2br(h($announcement['body'])); ?></div>
@@ -293,29 +349,28 @@ $totalCount = $canManage ? (int)($conn->query('SELECT COUNT(*) FROM announcement
                 <div class="table-responsive">
                     <table class="table align-middle mb-0">
                         <thead>
-                            <tr><th>Announcement</th><th>Posted</th><th>Expires</th><th>Status</th><th>Actions</th></tr>
+                            <tr><th>Announcement</th><th>Audience</th><th>Posted</th><th>Status</th><th>Actions</th></tr>
                         </thead>
                         <tbody>
                             <?php if (!$allAnnouncements || $allAnnouncements->num_rows === 0): ?>
-                                <tr><td colspan="5" class="text-center py-4 text-muted">No announcements have been published yet.</td></tr>
+                                <tr><td colspan="5" class="text-center py-4 text-muted">No announcements yet.</td></tr>
                             <?php else: ?>
                                 <?php while ($managed = $allAnnouncements->fetch_assoc()): ?>
                                     <?php
-                                    $isExpired = $managed['status'] === 'Published' && !empty($managed['expires_at']) && $managed['expires_at'] < $today;
-                                    $statusLabel = $managed['status'] === 'Archived' ? 'Archived' : ($isExpired ? 'Expired' : 'Published');
+                                    $statusLabel = in_array($managed['status'], ['Active', 'Archived', 'Draft'], true) ? $managed['status'] : 'Draft';
                                     ?>
                                     <tr>
                                         <td><strong><?php echo h($managed['title']); ?></strong><?php if (trim($managed['author']) !== ''): ?><div class="small text-muted">By <?php echo h(trim($managed['author'])); ?></div><?php endif; ?></td>
+                                        <td><?php echo h(announcementAudienceLabel($managed, $staffRoleOptions)); ?></td>
                                         <td class="text-nowrap"><?php echo h(formatDatabaseDateTime($managed['published_at'], 'M d, Y')); ?></td>
-                                        <td class="text-nowrap"><?php echo !empty($managed['expires_at']) ? h(date('M j, Y', strtotime($managed['expires_at']))) : '—'; ?></td>
                                         <td><span class="announcement-status announcement-status-<?php echo strtolower($statusLabel); ?>"><?php echo h($statusLabel); ?></span></td>
                                         <td class="text-nowrap">
                                             <a class="btn btn-sm btn-outline-primary" href="announcements.php?edit=<?php echo (int)$managed['id']; ?>" aria-label="Edit <?php echo h($managed['title']); ?>"><i class="fa-solid fa-pen" aria-hidden="true"></i> Edit</a>
                                             <form method="post" action="announcements.php" class="d-inline">
                                                 <?php echo csrfField(); ?>
                                                 <input type="hidden" name="id" value="<?php echo (int)$managed['id']; ?>">
-                                                <?php if ($managed['status'] === 'Archived'): ?>
-                                                    <button class="btn btn-sm btn-outline-success" type="submit" name="action" value="publish"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Republish</button>
+                                                <?php if ($managed['status'] !== 'Active'): ?>
+                                                    <button class="btn btn-sm btn-outline-success" type="submit" name="action" value="publish"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Activate</button>
                                                 <?php else: ?>
                                                     <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="archive" onclick="return confirm('Archive this announcement? It will no longer appear to other users.');"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive</button>
                                                 <?php endif; ?>
@@ -332,5 +387,23 @@ $totalCount = $canManage ? (int)($conn->query('SELECT COUNT(*) FROM announcement
     </main>
 </div>
 <?php renderFooterScripts(); ?>
+<script>
+    const audienceSelect = document.getElementById('announcementAudience');
+    const audienceFields = document.querySelectorAll('[data-announcement-audience]');
+    function updateAudienceFields() {
+        if (!audienceSelect) return;
+        audienceFields.forEach((field) => {
+            const visible = field.dataset.announcementAudience === audienceSelect.value;
+            field.hidden = !visible;
+            field.querySelectorAll('input, select').forEach((input) => {
+                input.disabled = !visible;
+                if (input.name === 'target_purok') input.required = visible;
+                if (input.name === 'target_roles[]') input.required = false;
+            });
+        });
+    }
+    audienceSelect?.addEventListener('change', updateAudienceFields);
+    updateAudienceFields();
+</script>
 </body>
 </html>

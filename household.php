@@ -3,6 +3,7 @@ require_once __DIR__ . '/layout.php';
 
 $search = trim($_GET['search'] ?? '');
 $statusFilter = trim($_GET['status'] ?? '');
+$selectedHouseholdId = max(0, (int)($_GET['view'] ?? 0));
 $perPage = 10;
 $page = max(1, (int)($_GET['page'] ?? 1));
 
@@ -49,18 +50,45 @@ $stmt->bind_param($types . 'ii', ...$listParams);
 $stmt->execute();
 $households = $stmt->get_result();
 
+$selectedHousehold = null;
+$selectedMembers = [];
+$selectedFamilies = [];
+if ($selectedHouseholdId > 0) {
+    $stmt = $conn->prepare('SELECT households.*, ' . householdMembersSql('households.household_number') . ' AS live_members_count FROM households WHERE id = ?');
+    $stmt->bind_param('i', $selectedHouseholdId);
+    $stmt->execute();
+    $selectedHousehold = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if ($selectedHousehold) {
+        $membersStmt = $conn->prepare('SELECT resident_number, first_name, middle_name, last_name, suffix, resident_status, household_head, relationship_head FROM residents WHERE household_id = ? ORDER BY household_head, last_name, first_name');
+        $membersStmt->bind_param('s', $selectedHousehold['household_number']);
+        $membersStmt->execute();
+        $selectedMembers = $membersStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $membersStmt->close();
+
+        foreach ($selectedMembers as $member) {
+            $familyHead = trim((string)($member['household_head'] ?? '')) ?: 'Family group not specified';
+            $selectedFamilies[$familyHead][] = $member;
+        }
+    }
+}
+
 $totalHouseholds = (int)($conn->query('SELECT COUNT(*) FROM households')->fetch_row()[0] ?? 0);
 $activeHouseholds = (int)($conn->query("SELECT COUNT(*) FROM households WHERE status = 'Active'")->fetch_row()[0] ?? 0);
 $archivedHouseholds = (int)($conn->query("SELECT COUNT(*) FROM households WHERE status = 'Archived'")->fetch_row()[0] ?? 0);
 $totalMembers = (int)($conn->query('SELECT COALESCE(SUM(' . householdMembersSql('households.household_number') . '), 0) FROM households')->fetch_row()[0] ?? 0);
 
-function householdPageUrl($page, $search, $status) {
+function householdPageUrl($page, $search, $status, $view = 0) {
     $query = ['page' => $page];
     if ($search !== '') {
         $query['search'] = $search;
     }
     if ($status !== '') {
         $query['status'] = $status;
+    }
+    if ($view > 0) {
+        $query['view'] = $view;
     }
     return 'household.php?' . http_build_query($query);
 }
@@ -102,7 +130,7 @@ function householdPageUrl($page, $search, $status) {
         <?php renderNotice([
             'created' => 'Household record created.',
             'updated' => 'Household record updated.',
-            'deleted' => 'Household record deleted.',
+            'delete_disabled' => 'Deleting household records is disabled. You can view or edit the record instead.',
         ]); ?>
 
         <form
@@ -273,7 +301,7 @@ function householdPageUrl($page, $search, $status) {
 
                                 <?php $householdName = trim((string)$household['household_head']); ?>
 
-                                <tr>
+                                <tr<?php echo $selectedHouseholdId === (int)$household['id'] ? ' class="household-selected-row"' : ''; ?>>
 
                                     <td><?php echo h($household['household_number']); ?></td>
 
@@ -298,10 +326,11 @@ function householdPageUrl($page, $search, $status) {
                                         <div class="action-group">
 
                                             <a
-                                                href="household_form.php?id=<?php echo (int)$household['id']; ?>"
+                                                href="<?php echo h(householdPageUrl($page, $search, $statusFilter, (int)$household['id'])); ?>#householdDetails"
                                                 class="btn-view"
                                                 aria-label="View household information for <?php echo h($householdName); ?>"
-                                                title="View Household">
+                                                title="View Household"
+                                                <?php echo $selectedHouseholdId === (int)$household['id'] ? 'aria-current="true"' : ''; ?>>
 
                                                 <i
                                                     class="fa-solid fa-eye"
@@ -321,18 +350,6 @@ function householdPageUrl($page, $search, $status) {
 
                                             </a>
 
-                                            <a
-                                                href="household_form.php?id=<?php echo (int)$household['id']; ?>&amp;action=delete"
-                                                class="btn-delete"
-                                                onclick="return confirm('Delete household <?php echo h($household['household_number']); ?>?');"
-                                                aria-label="Delete household information for <?php echo h($householdName); ?>"
-                                                title="Delete Household">
-
-                                                <i
-                                                    class="fa-solid fa-trash"
-                                                    aria-hidden="true"></i>
-
-                                            </a>
 
                                         </div>
 
@@ -356,7 +373,7 @@ function householdPageUrl($page, $search, $status) {
 
                 <?php if ($page > 1): ?>
                     <a
-                        href="<?php echo h(householdPageUrl($page - 1, $search, $statusFilter)); ?>"
+                        href="<?php echo h(householdPageUrl($page - 1, $search, $statusFilter, $selectedHouseholdId)); ?>"
                         class="page-btn"
                         aria-label="Previous Page">
 
@@ -367,7 +384,7 @@ function householdPageUrl($page, $search, $status) {
 
                 <?php for ($i = 1; $i <= $totalPages; $i++): ?>
                     <a
-                        href="<?php echo h(householdPageUrl($i, $search, $statusFilter)); ?>"
+                        href="<?php echo h(householdPageUrl($i, $search, $statusFilter, $selectedHouseholdId)); ?>"
                         class="page-number<?php echo $i === $page ? ' active' : ''; ?>"
                         aria-label="Page <?php echo $i; ?>"
                         <?php echo $i === $page ? 'aria-current="page"' : ''; ?>>
@@ -379,7 +396,7 @@ function householdPageUrl($page, $search, $status) {
 
                 <?php if ($page < $totalPages): ?>
                     <a
-                        href="<?php echo h(householdPageUrl($page + 1, $search, $statusFilter)); ?>"
+                        href="<?php echo h(householdPageUrl($page + 1, $search, $statusFilter, $selectedHouseholdId)); ?>"
                         class="page-btn"
                         aria-label="Next Page">
 
@@ -391,6 +408,68 @@ function householdPageUrl($page, $search, $status) {
             </nav>
 
         </section>
+
+        <?php if ($selectedHousehold): ?>
+            <section class="household-details-card" id="householdDetails" aria-labelledby="householdDetailsHeading">
+                <div class="household-details-heading">
+                    <h2 id="householdDetailsHeading"><i class="fa-solid fa-house-user" aria-hidden="true"></i> Household Details</h2>
+                    <a class="household-back-link" href="<?php echo h(householdPageUrl(1, $search, $statusFilter)); ?>">
+                        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to List
+                    </a>
+                </div>
+
+                <dl class="household-detail-grid">
+                    <div><dt>Household No.</dt><dd><?php echo h($selectedHousehold['household_number']); ?></dd></div>
+                    <div><dt>Household Head</dt><dd><?php echo h($selectedHousehold['household_head']); ?></dd></div>
+                    <div><dt>Address</dt><dd><?php echo h($selectedHousehold['address'] ?: 'Not recorded'); ?></dd></div>
+                    <div><dt>Zone / Purok</dt><dd><?php echo h($selectedHousehold['zone'] ?: 'Not recorded'); ?></dd></div>
+                    <div><dt>Recorded Members</dt><dd><?php echo h($selectedHousehold['members_count'] ?? 'Not recorded'); ?></dd></div>
+                    <div><dt>Current Members</dt><dd><?php echo h($selectedHousehold['live_members_count']); ?></dd></div>
+                    <div><dt>Household Type</dt><dd><?php echo h($selectedHousehold['household_type'] ?: 'Not recorded'); ?></dd></div>
+                    <div><dt>Income Bracket</dt><dd><?php echo h($selectedHousehold['income_bracket'] ?: 'Not recorded'); ?></dd></div>
+                    <div><dt>Status</dt><dd><?php echo h($selectedHousehold['status']); ?></dd></div>
+                    <div><dt>Record Created</dt><dd><?php echo h(formatDatabaseDateTime($selectedHousehold['created_at'] ?? null) ?: 'Not recorded'); ?></dd></div>
+                    <div><dt>Last Updated</dt><dd><?php echo h(formatDatabaseDateTime($selectedHousehold['updated_at'] ?? null) ?: 'Not recorded'); ?></dd></div>
+                </dl>
+
+                <div class="household-families-heading">
+                    <h3><i class="fa-solid fa-people-group" aria-hidden="true"></i> Families in this Household</h3>
+                    <a class="household-full-record-link" href="record_view.php?type=household&amp;id=<?php echo (int)$selectedHousehold['id']; ?>">Open printable record</a>
+                </div>
+
+                <?php if ($selectedFamilies === []): ?>
+                    <p class="household-no-members">No resident members are linked to this household.</p>
+                <?php else: ?>
+                    <div class="household-family-grid">
+                        <?php foreach ($selectedFamilies as $familyHead => $familyMembers): ?>
+                            <section class="household-family-card" aria-label="<?php echo h($familyHead); ?>">
+                                <h4><i class="fa-solid fa-users" aria-hidden="true"></i> <?php echo h($familyHead === 'Family group not specified' ? $familyHead : 'Family of ' . $familyHead); ?><span><?php echo count($familyMembers); ?> Members</span></h4>
+                                <div class="table-responsive">
+                                    <table class="household-members-table">
+                                        <caption class="visually-hidden">Residents in <?php echo h($familyHead); ?></caption>
+                                        <thead>
+                                            <tr><th scope="col">No.</th><th scope="col">Resident No.</th><th scope="col">Full Name</th><th scope="col">Relationship / Status</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($familyMembers as $index => $member): ?>
+                                                <tr>
+                                                    <td><?php echo $index + 1; ?></td>
+                                                    <td><?php echo h($member['resident_number']); ?></td>
+                                                    <td><?php echo h(trim(implode(' ', array_filter([$member['first_name'], $member['middle_name'], $member['last_name'], $member['suffix']])))); ?></td>
+                                                    <td><?php echo h(($member['relationship_head'] ?? '') ?: ($member['resident_status'] ?? 'Not recorded')); ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </section>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </section>
+        <?php elseif ($selectedHouseholdId > 0): ?>
+            <div class="notice notice-error" role="alert">The selected household could not be found.</div>
+        <?php endif; ?>
 
     </main>
 

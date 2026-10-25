@@ -40,12 +40,11 @@ if ($certificate && isset($_GET['edit'])) {
     exit;
 }
 
-$isEdit = false;
 $isNew = !$certificate;
 
 $residents = $isResident
-    ? $conn->query('SELECT id, resident_number, first_name, last_name FROM residents WHERE id = ' . (int)$currentResident['id'])
-    : $conn->query('SELECT id, resident_number, first_name, last_name FROM residents ORDER BY last_name ASC, first_name ASC');
+    ? $conn->query('SELECT id, resident_number, first_name, middle_name, last_name, suffix FROM residents WHERE id = ' . (int)$currentResident['id'])
+    : $conn->query('SELECT id, resident_number, first_name, middle_name, last_name, suffix FROM residents ORDER BY last_name ASC, first_name ASC');
 
 $statusOptions = ['Pending', 'Approved', 'Released', 'Rejected'];
 
@@ -61,7 +60,9 @@ $values = [
     'request_for'      => 'self',
     'other_resident_number' => '',
     'other_first_name' => '',
+    'other_middle_name' => '',
     'other_last_name' => '',
+    'other_suffix' => '',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -72,7 +73,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $values['request_for'] = trim($_POST['request_for'] ?? 'self');
         $values['other_resident_number'] = trim($_POST['other_resident_number'] ?? '');
         $values['other_first_name'] = trim($_POST['other_first_name'] ?? '');
+        $values['other_middle_name'] = trim($_POST['other_middle_name'] ?? '');
         $values['other_last_name'] = trim($_POST['other_last_name'] ?? '');
+        $values['other_suffix'] = trim($_POST['other_suffix'] ?? '');
         $values['requester_relationship'] = trim($_POST['requester_relationship'] ?? '');
         $values['status'] = 'Pending';
         $values['approved_date'] = '';
@@ -83,12 +86,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $values['requester_relationship'] = '';
         } elseif ($values['request_for'] === 'other') {
             if ($values['other_resident_number'] === '' || $values['other_first_name'] === '' || $values['other_last_name'] === '') {
-                $error = 'Enter the other resident’s resident number, first name, and last name.';
+                $error = 'Enter the other resident’s resident number, first name, and last name. Include their middle name and suffix when present.';
             } elseif (!in_array($values['requester_relationship'], ['Parent/Guardian', 'Spouse', 'Child', 'Sibling', 'Other'], true)) {
                 $error = 'Choose your relationship to the resident.';
             } else {
-                $stmt = $conn->prepare('SELECT id FROM residents WHERE resident_number = ? AND first_name = ? AND last_name = ? LIMIT 1');
-                $stmt->bind_param('sss', $values['other_resident_number'], $values['other_first_name'], $values['other_last_name']);
+                $stmt = $conn->prepare('SELECT id FROM residents WHERE resident_number = ? AND first_name = ? AND COALESCE(middle_name, \'\') = ? AND last_name = ? AND COALESCE(suffix, \'\') = ? LIMIT 1');
+                $stmt->bind_param('sssss', $values['other_resident_number'], $values['other_first_name'], $values['other_middle_name'], $values['other_last_name'], $values['other_suffix']);
                 $stmt->execute();
                 $otherResident = $stmt->get_result()->fetch_assoc();
                 $stmt->close();
@@ -139,8 +142,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$showForm = $isNew || $isEdit;
-$title = $isNew ? 'New Certificate Request' : ($isEdit ? 'Edit Certificate Request' : 'Certificate Request Details');
+$showForm = $isNew;
+$title = $isNew ? 'New Certificate Request' : 'Certificate Request Details';
 $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate of Indigency', 'Business Clearance', 'Good Moral'];
 ?>
 <!DOCTYPE html>
@@ -183,7 +186,7 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
 
             <?php elseif ($showForm): ?>
 
-                <h3><?php echo $isNew ? 'New Request' : 'Edit Request'; ?></h3>
+                <h3>New Request</h3>
 
                 <form class="record-form" method="post" action="certificate_form.php<?php echo $certificate ? '?id=' . $id . '&edit=1' : ''; ?>">
                     <?php echo csrfField(); ?>
@@ -210,8 +213,16 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
                                 <input type="text" id="other_first_name" name="other_first_name" value="<?php echo h($values['other_first_name']); ?>">
                             </div>
                             <div class="form-group">
+                                <label for="other_middle_name">Resident Middle Name</label>
+                                <input type="text" id="other_middle_name" name="other_middle_name" value="<?php echo h($values['other_middle_name']); ?>">
+                            </div>
+                            <div class="form-group">
                                 <label for="other_last_name">Resident Last Name *</label>
                                 <input type="text" id="other_last_name" name="other_last_name" value="<?php echo h($values['other_last_name']); ?>">
+                            </div>
+                            <div class="form-group">
+                                <label for="other_suffix">Suffix</label>
+                                <input type="text" id="other_suffix" name="other_suffix" value="<?php echo h($values['other_suffix']); ?>" placeholder="Jr., Sr., III">
                             </div>
                             <div class="form-group">
                                 <label for="requester_relationship">Your relationship *</label>
@@ -223,7 +234,7 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
                                 </select>
                             </div>
                             <p class="recipient-help">The other person must already have a resident record. The request will be reviewed by the barangay office.</p>
-                            <p class="recipient-help" id="residentLookupStatus" role="status" aria-live="polite">Enter the resident’s first and last name to look up their resident number.</p>
+                            <p class="recipient-help" id="residentLookupStatus" role="status" aria-live="polite">Enter the resident’s full name, including middle name and suffix when present, to look up their resident number.</p>
                         </div>
                         <?php else: ?>
                         <div class="form-group">
@@ -232,7 +243,7 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
                                 <option value="">Select resident</option>
                                 <?php while ($resident = $residents->fetch_assoc()): ?>
                                     <option value="<?php echo (int)$resident['id']; ?>"<?php echo (int)$values['resident_id'] === (int)$resident['id'] ? ' selected' : ''; ?>>
-                                        <?php echo h(trim($resident['last_name'] . ', ' . $resident['first_name']) . ' (' . $resident['resident_number'] . ')'); ?>
+                                        <?php echo h(trim($resident['last_name'] . ', ' . $resident['first_name'] . ' ' . $resident['middle_name'] . ' ' . $resident['suffix']) . ' (' . $resident['resident_number'] . ')'); ?>
                                     </option>
                                 <?php endwhile; ?>
                             </select>
@@ -341,7 +352,9 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
     const otherRecipientFields = document.getElementById('otherRecipientFields');
     const otherRecipientInputs = otherRecipientFields.querySelectorAll('input, select');
     const firstNameInput = document.getElementById('other_first_name');
+    const middleNameInput = document.getElementById('other_middle_name');
     const lastNameInput = document.getElementById('other_last_name');
+    const suffixInput = document.getElementById('other_suffix');
     const residentNumberInput = document.getElementById('other_resident_number');
     const lookupStatus = document.getElementById('residentLookupStatus');
     const csrfToken = document.querySelector('input[name="csrf_token"]').value;
@@ -350,7 +363,9 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
 
     async function lookupResidentNumber(sequence) {
         const firstName = firstNameInput.value.trim();
+        const middleName = middleNameInput.value.trim();
         const lastName = lastNameInput.value.trim();
+        const suffix = suffixInput.value.trim();
         if (!firstName || !lastName) {
             lookupStatus.textContent = '';
             return;
@@ -361,7 +376,7 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
             const response = await fetch('resident_lookup.php', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
-                body: new URLSearchParams({first_name: firstName, last_name: lastName, csrf_token: csrfToken})
+                body: new URLSearchParams({first_name: firstName, middle_name: middleName, last_name: lastName, suffix: suffix, csrf_token: csrfToken})
             });
             const result = await response.json();
             if (sequence !== lookupSequence) {
@@ -409,7 +424,9 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
 
     requestForInputs.forEach((input) => input.addEventListener('change', updateRecipientFields));
     firstNameInput.addEventListener('input', scheduleResidentLookup);
+    middleNameInput.addEventListener('input', scheduleResidentLookup);
     lastNameInput.addEventListener('input', scheduleResidentLookup);
+    suffixInput.addEventListener('input', scheduleResidentLookup);
     updateRecipientFields();
 </script>
 <?php endif; ?>
