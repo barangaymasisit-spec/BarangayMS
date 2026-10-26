@@ -570,18 +570,23 @@ body{
 
 .emergency-form{
     display:grid;
-    grid-template-columns:minmax(260px, 1fr) minmax(360px, 1.25fr) auto;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
     align-items:end;
-    gap:28px;
+    gap:20px 24px;
     padding:20px 16px 16px;
     border-radius:13px;
     background:#f4f8ff;
 }
 
 .emergency-form-field{
+    min-width:0;
     display:flex;
     flex-direction:column;
     gap:8px;
+}
+
+.emergency-form-field[hidden]{
+    display:none !important;
 }
 
 .emergency-form-field label{
@@ -599,8 +604,11 @@ body{
 }
 
 .emergency-form-field select,
+.emergency-form-field input,
 .emergency-form-field textarea{
     width:100%;
+    min-height:48px;
+    padding:0 15px;
     border:1px solid #d7deea;
     border-radius:12px;
     background:#fff;
@@ -610,8 +618,11 @@ body{
 }
 
 .emergency-form-field select{
-    min-height:50px;
-    padding:0 15px;
+    cursor:pointer;
+}
+
+.emergency-form-field input[type="datetime-local"]{
+    min-width:0;
 }
 
 .emergency-form-field textarea{
@@ -621,6 +632,7 @@ body{
 }
 
 .emergency-form-field select:focus,
+.emergency-form-field input:focus,
 .emergency-form-field textarea:focus{
     outline:none;
     border-color:#0f4da8;
@@ -629,6 +641,11 @@ body{
 
 .emergency-form-field textarea::placeholder{
     color:#9aa6b8;
+}
+
+.emergency-form-field-wide,
+.emergency-form-actions{
+    grid-column:1 / -1;
 }
 
 .emergency-form-actions{
@@ -655,10 +672,15 @@ body{
     color:#0b3d85;
 }
 
-@media(max-width:900px){
+@media(max-width:768px){
     .emergency-form{
         grid-template-columns:1fr;
         gap:18px;
+    }
+
+    .emergency-form-field-wide,
+    .emergency-form-actions{
+        grid-column:auto;
     }
 
     .emergency-form-actions{

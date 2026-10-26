@@ -173,7 +173,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label for="incident_at">Incident Date &amp; Time <span>*</span></label>
                     <input type="datetime-local" id="incident_at" name="incident_at" required value="<?php echo h($incidentDateTime); ?>">
                 </div>
-                <div class="emergency-form-field">
+                <div class="emergency-form-field emergency-form-field-wide">
                     <label for="description">Describe the emergency <span>*</span></label>
                     <textarea id="description" name="description" rows="7" required placeholder="Describe what happened and any assistance needed."><?php echo h($description); ?></textarea>
                 </div>
