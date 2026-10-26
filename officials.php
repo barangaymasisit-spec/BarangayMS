@@ -1583,6 +1583,9 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         pendingForm.submit();
     });
     dialog.addEventListener('close', () => {
+        archiveReason.removeAttribute('form');
+        archiveReason.required = false;
+        archiveReason.value = '';
         pendingForm = null;
         confirmButton.disabled = false;
     });
