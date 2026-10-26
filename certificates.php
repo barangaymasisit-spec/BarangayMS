@@ -8,6 +8,20 @@ $certificateView = in_array($_GET['view'] ?? 'active', ['active', 'archived'], t
 $perPage = 10;
 $page = max(1, (int)($_GET['page'] ?? 1));
 $jsonResponse = static function (array $payload, int $status = 200): never {
+    $action = (string)($_POST['action'] ?? '');
+    $isCertificateAction = $_SERVER['REQUEST_METHOD'] === 'POST'
+        && in_array($action, ['archive_request', 'restore_request'], true);
+    $isAjaxRequest = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
+    if ($isCertificateAction && !$isAjaxRequest) {
+        $succeeded = $status < 400 && !empty($payload['success']);
+        $message = $succeeded
+            ? ($action === 'archive_request' ? 'archive_success' : 'restore_success')
+            : 'action_error';
+        $view = $action === 'archive_request' ? 'archived' : 'active';
+        header('Location: certificates.php?' . http_build_query(['view' => $view, 'msg' => $message]), true, 303);
+        exit;
+    }
+
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -347,6 +361,9 @@ $activeFilters = [
             'no_change' => 'The certificate request already has that status.',
             'missing' => 'The certificate request could not be found.',
             'delete_disabled' => 'Deleting certificate requests is disabled. You can view the record or change its status.',
+            'archive_success' => 'Certificate request archived.',
+            'restore_success' => 'Certificate request restored.',
+            'action_error' => 'The certificate request could not be updated. Refresh the page and try again.',
         ]);
         ?>
 
@@ -709,7 +726,7 @@ $activeFilters = [
                                                     <?php echo csrfField(); ?>
                                                     <input type="hidden" name="action" value="restore_request">
                                                     <input type="hidden" name="certificate_id" value="<?php echo (int)$row['id']; ?>">
-                                                    <button type="submit" class="certificate-action-button">
+                                                    <button type="button" class="certificate-action-button" data-certificate-action-trigger>
                                                         <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Restore
                                                     </button>
                                                 </form>
@@ -718,7 +735,7 @@ $activeFilters = [
                                                     <?php echo csrfField(); ?>
                                                     <input type="hidden" name="action" value="archive_request">
                                                     <input type="hidden" name="certificate_id" value="<?php echo (int)$row['id']; ?>">
-                                                    <button type="submit" class="certificate-action-button is-danger">
+                                                    <button type="button" class="certificate-action-button is-danger" data-certificate-action-trigger>
                                                         <i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive
                                                     </button>
                                                 </form>
@@ -1012,10 +1029,11 @@ $activeFilters = [
             }
         });
 
-        document.addEventListener('submit', async function (event) {
-            const actionForm = event.target.closest('[data-certificate-action-form]');
+        document.addEventListener('click', function (event) {
+            const actionTrigger = event.target.closest('[data-certificate-action-trigger]');
+            if (!actionTrigger) return;
+            const actionForm = actionTrigger.closest('[data-certificate-action-form]');
             if (!actionForm) return;
-            event.preventDefault();
             const action = actionForm.querySelector('[name="action"]').value;
             showActionConfirmation(action, new FormData(actionForm), null);
         });
