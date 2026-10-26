@@ -213,11 +213,14 @@ CREATE TABLE IF NOT EXISTS `certificates` (
   `approved_date` DATE DEFAULT NULL,
   `purpose` TEXT DEFAULT NULL,
   `remarks` TEXT DEFAULT NULL,
+  `is_archived` TINYINT(1) NOT NULL DEFAULT 0,
+  `archived_at` DATETIME DEFAULT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_resident_id` (`resident_id`),
-  KEY `idx_certificates_requested_by` (`requested_by_user_id`)
+  KEY `idx_certificates_requested_by` (`requested_by_user_id`),
+  KEY `idx_certificates_archive_status` (`is_archived`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `complaints` (

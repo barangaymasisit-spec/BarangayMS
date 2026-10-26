@@ -4,57 +4,173 @@ require_once __DIR__ . '/layout.php';
 $residentSearch = trim($_GET['residentSearch'] ?? '');
 $certificateType = trim($_GET['certificateType'] ?? '');
 $requestStatus = trim($_GET['requestStatus'] ?? '');
+$certificateView = in_array($_GET['view'] ?? 'active', ['active', 'archived'], true) ? $_GET['view'] : 'active';
 $perPage = 10;
 $page = max(1, (int)($_GET['page'] ?? 1));
+$jsonResponse = static function (array $payload, int $status = 200): never {
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+};
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_status') {
-    $certificateId = filter_var($_POST['certificate_id'] ?? null, FILTER_VALIDATE_INT);
-    $newStatus = trim((string)($_POST['status'] ?? ''));
-    $allowedStatuses = ['Pending', 'Approved', 'Released', 'Rejected'];
+$statusOptions = ['Pending', 'Processing', 'Approved', 'Released', 'Rejected', 'Cancelled'];
+$archivableStatuses = ['Released', 'Rejected', 'Cancelled'];
 
-    $returnParams = array_intersect_key($_GET, array_flip(['residentSearch', 'certificateType', 'requestStatus', 'page']));
-    $returnQuery = http_build_query($returnParams);
-    $returnUrl = 'certificates.php' . ($returnQuery === '' ? '?' : '?' . $returnQuery . '&');
-
-    if (!$certificateId || !in_array($newStatus, $allowedStatuses, true)) {
-        header('Location: ' . $returnUrl . 'msg=invalid_status', true, 303);
-        exit;
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['ajax'] ?? '') === 'details') {
+    $certificateId = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+    if (!$certificateId || $certificateId <= 0) {
+        $jsonResponse(['success' => false, 'message' => 'Invalid certificate request.'], 400);
     }
 
-    $stmt = $conn->prepare('SELECT status FROM certificates WHERE id = ?');
+    $stmt = $conn->prepare(
+        'SELECT c.id, c.resident_id, c.requested_by_user_id, c.requester_relationship, c.certificate_type, c.status,
+                c.request_date, c.approved_date, c.purpose, c.remarks, c.is_archived, c.archived_at,
+                r.id AS linked_resident_id, r.resident_number,
+                CONCAT_WS(" ", NULLIF(r.first_name, ""), NULLIF(r.middle_name, ""), NULLIF(r.last_name, ""), NULLIF(r.suffix, "")) AS resident_name,
+                CONCAT_WS(" ", NULLIF(u.first_name, ""), NULLIF(u.last_name, "")) AS requested_by
+         FROM certificates c
+         LEFT JOIN residents r ON r.id = c.resident_id
+         LEFT JOIN users u ON u.id = c.requested_by_user_id
+         WHERE c.id = ?'
+    );
+    $stmt->bind_param('i', $certificateId);
+    $stmt->execute();
+    $record = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$record) {
+        $jsonResponse(['success' => false, 'message' => 'Certificate request not found.'], 404);
+    }
+
+    $timeline = [];
+    $hasSubmission = false;
+    $hasStatusHistory = false;
+    $historyStmt = $conn->prepare("SELECT action, details, created_at FROM activity_logs WHERE entity = 'certificates' AND related_id = ? ORDER BY id ASC");
+    $historyStmt->bind_param('i', $certificateId);
+    $historyStmt->execute();
+    $history = $historyStmt->get_result();
+    while ($event = $history->fetch_assoc()) {
+        $details = (string)($event['details'] ?? '');
+        $activity = '';
+        if ($event['action'] === 'created') {
+            $activity = 'Request submitted';
+            $hasSubmission = true;
+        } elseif (preg_match('/status changed from .+ to (.+)\.$/i', $details, $matches)) {
+            $activity = 'Status changed to ' . trim($matches[1]);
+            $hasStatusHistory = true;
+        } elseif ($event['action'] === 'released') {
+            $activity = 'Certificate released';
+        } elseif ($event['action'] === 'printed') {
+            $activity = 'Certificate printed';
+        } elseif ($event['action'] === 'archived') {
+            $activity = 'Request archived';
+        } elseif ($event['action'] === 'restored') {
+            $activity = 'Request restored';
+        }
+        if ($activity !== '') {
+            $timeline[] = ['activity' => $activity, 'date' => $event['created_at']];
+        }
+    }
+    $historyStmt->close();
+    if (!$hasSubmission) {
+        array_unshift($timeline, [
+            'activity' => 'Request submitted (date recorded)',
+            'date' => $record['request_date'] ?: null,
+        ]);
+    }
+    if (!$hasStatusHistory && !empty($record['approved_date'])) {
+        $timeline[] = [
+            'activity' => 'Approval / release date recorded',
+            'date' => $record['approved_date'],
+        ];
+    }
+
+    $record['resident_name'] = $record['linked_resident_id']
+        ? trim((string)$record['resident_name'])
+        : ($record['resident_id'] ? 'Missing resident record (#' . (int)$record['resident_id'] . ')' : 'No resident linked');
+    if ($record['resident_name'] === '') {
+        $record['resident_name'] = 'Missing resident name (#' . (int)$record['resident_id'] . ')';
+    }
+    $record['requested_by'] = trim((string)$record['requested_by']) ?: 'Not recorded';
+    $record['timeline'] = $timeline;
+    $record['can_archive'] = !$record['is_archived'] && in_array($record['status'], $archivableStatuses, true);
+    $record['generator_url'] = certificateGeneratorPage((string)$record['certificate_type']) . '?' . http_build_query([
+        'id' => (int)$record['id'],
+        'type' => strtolower(str_replace(' ', '_', (string)$record['certificate_type'])),
+    ]);
+    $jsonResponse(['success' => true, 'record' => $record]);
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['update_status', 'archive_request', 'restore_request'], true)) {
+    $action = (string)$_POST['action'];
+    $certificateId = filter_var($_POST['certificate_id'] ?? null, FILTER_VALIDATE_INT);
+    if (!$certificateId || $certificateId <= 0) {
+        $jsonResponse(['success' => false, 'message' => 'Invalid certificate request.'], 400);
+    }
+
+    $stmt = $conn->prepare('SELECT status, is_archived FROM certificates WHERE id = ?');
     $stmt->bind_param('i', $certificateId);
     $stmt->execute();
     $currentRequest = $stmt->get_result()->fetch_assoc();
     $stmt->close();
-
     if (!$currentRequest) {
-        header('Location: ' . $returnUrl . 'msg=missing', true, 303);
-        exit;
+        $jsonResponse(['success' => false, 'message' => 'Certificate request not found.'], 404);
     }
-
     $previousStatus = (string)$currentRequest['status'];
-    if ($previousStatus === $newStatus) {
-        header('Location: ' . $returnUrl . 'msg=no_change', true, 303);
-        exit;
+    if ($action === 'update_status') {
+        $newStatus = trim((string)($_POST['status'] ?? ''));
+        if (!in_array($newStatus, $statusOptions, true)) {
+            $jsonResponse(['success' => false, 'message' => 'Choose a valid certificate status.'], 422);
+        }
+        if ($currentRequest['is_archived']) {
+            $jsonResponse(['success' => false, 'message' => 'Restore this request before changing its status.'], 409);
+        }
+        if ($previousStatus !== $newStatus) {
+            $approvedDate = in_array($newStatus, ['Approved', 'Released'], true) ? date('Y-m-d') : null;
+            $stmt = $conn->prepare('UPDATE certificates SET status = ?, approved_date = ? WHERE id = ? AND is_archived = 0');
+            $stmt->bind_param('ssi', $newStatus, $approvedDate, $certificateId);
+            $stmt->execute();
+            $stmt->close();
+            logActivity($conn, 'updated', 'certificates', 'Certificate request status changed from ' . $previousStatus . ' to ' . $newStatus . '.', $certificateId);
+        }
+        $jsonResponse(['success' => true, 'status' => $newStatus]);
     }
 
-    $approvedDate = in_array($newStatus, ['Approved', 'Released'], true) ? date('Y-m-d') : null;
-    $stmt = $conn->prepare('UPDATE certificates SET status = ?, approved_date = ? WHERE id = ?');
-    $stmt->bind_param('ssi', $newStatus, $approvedDate, $certificateId);
+    if ($action === 'archive_request') {
+        if ($currentRequest['is_archived'] || !in_array($previousStatus, $archivableStatuses, true)) {
+            $jsonResponse(['success' => false, 'message' => 'Only Released, Rejected, or Cancelled requests can be archived.'], 409);
+        }
+        $stmt = $conn->prepare('UPDATE certificates SET is_archived = 1, archived_at = NOW() WHERE id = ? AND is_archived = 0');
+        $activity = 'archived';
+        $message = 'Certificate request archived.';
+    } else {
+        if (!$currentRequest['is_archived']) {
+            $jsonResponse(['success' => false, 'message' => 'This certificate request is already active.'], 409);
+        }
+        $stmt = $conn->prepare('UPDATE certificates SET is_archived = 0, archived_at = NULL WHERE id = ? AND is_archived = 1');
+        $activity = 'restored';
+        $message = 'Certificate request restored.';
+    }
+    $stmt->bind_param('i', $certificateId);
     $stmt->execute();
+    $changed = $stmt->affected_rows === 1;
     $stmt->close();
-    logActivity($conn, 'updated', 'certificates', 'Certificate request status changed from ' . $previousStatus . ' to ' . $newStatus . '.', $certificateId);
-
-    header('Location: ' . $returnUrl . 'msg=updated', true, 303);
-    exit;
+    if (!$changed) {
+        $jsonResponse(['success' => false, 'message' => 'The certificate request could not be updated. Refresh and try again.'], 409);
+    }
+    logActivity($conn, $activity, 'certificates', $message, $certificateId);
+    $jsonResponse(['success' => true, 'message' => $message]);
 }
 
 $where = [];
 $params = [];
 $types = '';
+$where[] = 'c.is_archived = ?';
+$params[] = $certificateView === 'archived' ? 1 : 0;
+$types .= 'i';
 
 if ($residentSearch !== '') {
-    $where[] = 'CONCAT(COALESCE(r.first_name, ""), " ", COALESCE(r.last_name, "")) LIKE ?';
+    $where[] = 'CONCAT_WS(" ", r.first_name, r.middle_name, r.last_name, r.suffix, r.resident_number) LIKE ?';
     $params[] = '%' . $residentSearch . '%';
     $types .= 's';
 }
@@ -72,7 +188,7 @@ $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
 // Export: CSV of every request matching the current filters (not just this page).
 if (($_GET['export'] ?? '') === 'csv') {
-        $stmt = $conn->prepare('SELECT c.id, COALESCE(CONCAT(r.first_name, " ", r.last_name), "Unknown") AS resident_name,
+        $stmt = $conn->prepare('SELECT c.id, CASE WHEN r.id IS NULL THEN CASE WHEN c.resident_id IS NULL THEN "No resident linked" ELSE CONCAT("Missing resident record (#", c.resident_id, ")") END ELSE COALESCE(NULLIF(CONCAT_WS(" ", r.first_name, r.middle_name, r.last_name, r.suffix), ""), CONCAT("Missing resident name (#", c.resident_id, ")")) END AS resident_name,
                         COALESCE(CONCAT(u.first_name, " ", u.last_name), "—") AS requested_by, c.requester_relationship,
                         c.certificate_type, c.purpose, c.request_date, c.status, c.approved_date, c.remarks
                     FROM certificates c
@@ -116,8 +232,9 @@ $totalPages = max(1, (int)ceil($filteredCount / $perPage));
 $page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
 
-$listSql = 'SELECT c.id, c.certificate_type, c.status, c.request_date, c.purpose, c.requester_relationship,
-                   COALESCE(CONCAT(r.first_name, " ", r.last_name), "Unknown") AS resident_name,
+$listSql = 'SELECT c.id, c.resident_id, c.certificate_type, c.status, c.request_date, c.purpose, c.requester_relationship,
+                   c.is_archived, c.archived_at,
+                   CASE WHEN r.id IS NULL THEN CASE WHEN c.resident_id IS NULL THEN "No resident linked" ELSE CONCAT("Missing resident record (#", c.resident_id, ")") END ELSE COALESCE(NULLIF(CONCAT_WS(" ", r.first_name, r.middle_name, r.last_name, r.suffix), ""), CONCAT("Missing resident name (#", c.resident_id, ")")) END AS resident_name,
                    COALESCE(CONCAT(u.first_name, " ", u.last_name), "—") AS requested_by
             FROM certificates c
             LEFT JOIN residents r ON c.resident_id = r.id
@@ -131,10 +248,12 @@ $stmt->bind_param($types . 'ii', ...$listParams);
 $stmt->execute();
 $certificates = $stmt->get_result();
 
-$totalRequests = (int)($conn->query('SELECT COUNT(*) FROM certificates')->fetch_row()[0] ?? 0);
-$pendingRequests = (int)($conn->query("SELECT COUNT(*) FROM certificates WHERE status = 'Pending'")->fetch_row()[0] ?? 0);
-$approvedRequests = (int)($conn->query("SELECT COUNT(*) FROM certificates WHERE status = 'Approved'")->fetch_row()[0] ?? 0);
-$releasedRequests = (int)($conn->query("SELECT COUNT(*) FROM certificates WHERE status = 'Released'")->fetch_row()[0] ?? 0);
+$totalRequests = (int)($conn->query('SELECT COUNT(*) FROM certificates WHERE is_archived = 0')->fetch_row()[0] ?? 0);
+$pendingRequests = (int)($conn->query("SELECT COUNT(*) FROM certificates WHERE status = 'Pending' AND is_archived = 0")->fetch_row()[0] ?? 0);
+$approvedRequests = (int)($conn->query("SELECT COUNT(*) FROM certificates WHERE status = 'Approved' AND is_archived = 0")->fetch_row()[0] ?? 0);
+$releasedRequests = (int)($conn->query("SELECT COUNT(*) FROM certificates WHERE status = 'Released' AND is_archived = 0")->fetch_row()[0] ?? 0);
+$activeRequests = (int)($conn->query('SELECT COUNT(*) FROM certificates WHERE is_archived = 0')->fetch_row()[0] ?? 0);
+$archivedRequests = (int)($conn->query('SELECT COUNT(*) FROM certificates WHERE is_archived = 1')->fetch_row()[0] ?? 0);
 
 function certificatePageUrl(int $page, array $filters): string {
     $query = array_filter($filters, function ($value) {
@@ -142,6 +261,18 @@ function certificatePageUrl(int $page, array $filters): string {
     });
     $query['page'] = $page;
     return 'certificates.php?' . http_build_query($query);
+}
+
+function certificateStatusClass(string $status): string {
+    return match (strtolower(trim($status))) {
+        'pending' => 'pending',
+        'processing' => 'processing',
+        'approved' => 'approved',
+        'released' => 'released',
+        'rejected' => 'rejected',
+        'cancelled' => 'cancelled',
+        default => 'unknown',
+    };
 }
 
 function certificateGeneratorPage(string $certificateType): string {
@@ -160,6 +291,7 @@ $activeFilters = [
     'residentSearch'  => $residentSearch,
     'certificateType' => $certificateType,
     'requestStatus'   => $requestStatus,
+    'view' => $certificateView,
 ];
 ?>
 <!DOCTYPE html>
@@ -350,7 +482,7 @@ $activeFilters = [
 
                         <option value="">All Status</option>
                         <?php
-                        foreach (['Pending', 'Approved', 'Released', 'Rejected'] as $option) {
+                        foreach ($statusOptions as $option) {
                             $selected = $requestStatus === $option ? ' selected' : '';
                             echo '<option' . $selected . '>' . $option . '</option>';
                         }
@@ -436,6 +568,24 @@ $activeFilters = [
 
             </div>
 
+            <nav class="certificate-request-tabs" aria-label="Certificate request status">
+                <?php
+                $tabFilters = array_filter([
+                    'residentSearch' => $residentSearch,
+                    'certificateType' => $certificateType,
+                    'requestStatus' => $requestStatus,
+                ], static fn($value) => $value !== '');
+                ?>
+                <a class="certificate-request-tab<?php echo $certificateView === 'active' ? ' is-active' : ''; ?>" href="certificates.php?<?php echo h(http_build_query($tabFilters + ['view' => 'active'])); ?>"<?php echo $certificateView === 'active' ? ' aria-current="page"' : ''; ?>>
+                    <span><i class="fa-solid fa-inbox" aria-hidden="true"></i> Active Requests</span>
+                    <strong><?php echo $activeRequests; ?></strong>
+                </a>
+                <a class="certificate-request-tab<?php echo $certificateView === 'archived' ? ' is-active' : ''; ?>" href="certificates.php?<?php echo h(http_build_query($tabFilters + ['view' => 'archived'])); ?>"<?php echo $certificateView === 'archived' ? ' aria-current="page"' : ''; ?>>
+                    <span><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archived</span>
+                    <strong><?php echo $archivedRequests; ?></strong>
+                </a>
+            </nav>
+
             <div class="table-responsive">
 
                 <table>
@@ -488,20 +638,20 @@ $activeFilters = [
 
                                         <h3>
 
-                                            No Certificate Requests
+                                            <?php echo $certificateView === 'archived' ? 'No Archived Requests' : 'No Active Certificate Requests'; ?>
 
                                         </h3>
 
                                         <p>
 
-                                            There are currently no certificate requests available.
+                                            <?php echo $certificateView === 'archived'
+                                                ? 'Archived requests will appear here and can be restored.'
+                                                : 'There are currently no active certificate requests available.'; ?>
 
                                         </p>
 
-                                        <a
-                                            href="certificate_form.php"
-                                            class="btn-primary"
-                                            aria-label="Create New Certificate Request">
+                                        <?php if ($certificateView === 'active'): ?>
+                                        <a href="certificate_form.php" class="btn-primary" aria-label="Create New Certificate Request">
 
                                             <i
                                                 class="fa-solid fa-plus"
@@ -514,6 +664,7 @@ $activeFilters = [
                                             </span>
 
                                         </a>
+                                        <?php endif; ?>
 
                                     </div>
 
@@ -543,36 +694,35 @@ $activeFilters = [
 
                                     <td><?php echo h($row['request_date']); ?></td>
 
-                                    <td>
-                                        <form class="certificate-status-form" method="post" action="certificates.php?<?php echo h(http_build_query(array_filter($activeFilters, fn($value) => $value !== '') + ['page' => $page])); ?>">
-                                            <?php echo csrfField(); ?>
-                                            <input type="hidden" name="action" value="update_status">
-                                            <input type="hidden" name="certificate_id" value="<?php echo (int)$row['id']; ?>">
-                                            <select name="status" class="certificate-status-select" aria-label="Status for certificate request <?php echo (int)$row['id']; ?>">
-                                                <?php foreach (['Pending', 'Approved', 'Released', 'Rejected'] as $statusOption): ?>
-                                                    <option value="<?php echo h($statusOption); ?>"<?php echo $row['status'] === $statusOption ? ' selected' : ''; ?>><?php echo h($statusOption); ?></option>
-                                                <?php endforeach; ?>
-                                            </select>
-                                            <button type="submit" class="certificate-status-save">Save</button>
-                                        </form>
-                                    </td>
+                                    <td><span class="certificate-status-badge <?php echo h(certificateStatusClass((string)$row['status'])); ?>"><?php echo h($row['status']); ?></span></td>
 
                                     <td>
-
-                                        <div class="action-group">
-
-                                            <a
-                                                href="<?php echo h(certificateGeneratorPage($row['certificate_type']) . '?' . http_build_query(['id' => (int)$row['id'], 'type' => strtolower(str_replace(' ', '_', $row['certificate_type']))])); ?>"
-                                                class="btn-view"
-                                                title="View Certificate"
-                                                aria-label="View the rendered certificate">
-
-                                                <i class="fa-solid fa-eye" aria-hidden="true"></i>
-
-                                            </a>
-
+                                        <div class="certificate-actions">
+                                            <details class="certificate-actions-menu">
+                                                <summary aria-label="Actions for certificate request <?php echo (int)$row['id']; ?>"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></summary>
+                                                <div class="certificate-actions-menu__items">
+                                                    <button type="button" class="certificate-details-trigger" data-certificate-id="<?php echo (int)$row['id']; ?>"><i class="fa-regular fa-file-lines" aria-hidden="true"></i> View Details</button>
+                                                    <a href="<?php echo h(certificateGeneratorPage($row['certificate_type']) . '?' . http_build_query(['id' => (int)$row['id'], 'type' => strtolower(str_replace(' ', '_', $row['certificate_type']))])); ?>" target="_blank" rel="noopener">
+                                                        <i class="fa-solid fa-print" aria-hidden="true"></i> Generate / Print
+                                                    </a>
+                                                    <?php if ($certificateView === 'archived'): ?>
+                                                        <form method="post" data-certificate-action-form>
+                                                            <?php echo csrfField(); ?>
+                                                            <input type="hidden" name="action" value="restore_request">
+                                                            <input type="hidden" name="certificate_id" value="<?php echo (int)$row['id']; ?>">
+                                                            <button type="submit"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Restore Request</button>
+                                                        </form>
+                                                    <?php elseif (in_array($row['status'], $archivableStatuses, true)): ?>
+                                                        <form method="post" data-certificate-action-form>
+                                                            <?php echo csrfField(); ?>
+                                                            <input type="hidden" name="action" value="archive_request">
+                                                            <input type="hidden" name="certificate_id" value="<?php echo (int)$row['id']; ?>">
+                                                            <button type="submit" class="is-danger"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive Request</button>
+                                                        </form>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </details>
                                         </div>
-
                                     </td>
 
                                 </tr>
@@ -632,6 +782,54 @@ $activeFilters = [
 
 </div>
 
+<dialog class="certificate-details-dialog" id="certificateDetailsDialog" aria-labelledby="certificateDetailsTitle" aria-describedby="certificateDetailsMessage">
+    <div class="certificate-details-dialog__header">
+        <div>
+            <span class="certificate-details-dialog__eyebrow">CERTIFICATE REQUEST</span>
+            <h2 id="certificateDetailsTitle">Request details</h2>
+        </div>
+        <button type="button" class="certificate-details-dialog__close" data-close-certificate-dialog aria-label="Close details"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+    </div>
+    <p id="certificateDetailsMessage" class="certificate-details-dialog__message" role="status" aria-live="polite"></p>
+    <div class="certificate-details-dialog__body">
+        <section class="certificate-details-summary" aria-label="Request information">
+            <div><span>Resident</span><strong id="certificateDetailResident"></strong></div>
+            <div><span>Resident number</span><strong id="certificateDetailResidentNumber"></strong></div>
+            <div><span>Requested by</span><strong id="certificateDetailRequester"></strong></div>
+            <div><span>Relationship</span><strong id="certificateDetailRelationship"></strong></div>
+            <div><span>Certificate</span><strong id="certificateDetailType"></strong></div>
+            <div><span>Request date</span><strong id="certificateDetailRequestDate"></strong></div>
+            <div class="certificate-details-summary__wide"><span>Purpose</span><strong id="certificateDetailPurpose"></strong></div>
+            <div class="certificate-details-summary__wide"><span>Remarks</span><strong id="certificateDetailRemarks"></strong></div>
+            <div class="certificate-details-summary__wide" id="certificateArchivedAtRow" hidden><span>Archived</span><strong id="certificateDetailArchivedAt"></strong></div>
+        </section>
+        <section class="certificate-timeline" aria-labelledby="certificateTimelineTitle">
+            <h3 id="certificateTimelineTitle">Request Timeline</h3>
+            <ol id="certificateTimelineList" class="certificate-timeline__list"></ol>
+        </section>
+        <form id="certificateStatusForm" class="certificate-details-status">
+            <?php echo csrfField(); ?>
+            <input type="hidden" name="action" value="update_status">
+            <input type="hidden" name="certificate_id" id="certificateDetailId">
+            <label for="certificateDetailStatus">Update status</label>
+            <div class="certificate-details-status__controls">
+                <select id="certificateDetailStatus" name="status">
+                    <?php foreach ($statusOptions as $statusOption): ?>
+                        <option value="<?php echo h($statusOption); ?>"><?php echo h($statusOption); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <button type="submit" class="btn-export"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save Status</button>
+            </div>
+        </form>
+    </div>
+    <div class="certificate-details-dialog__actions">
+        <a href="#" id="certificateDetailPrint" class="btn-export" target="_blank" rel="noopener"><i class="fa-solid fa-print" aria-hidden="true"></i> Generate / Print</a>
+        <button type="button" id="certificateDetailArchive" class="certificate-dialog-action is-danger" hidden><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive Request</button>
+        <button type="button" id="certificateDetailRestore" class="certificate-dialog-action" hidden><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Restore Request</button>
+        <button type="button" class="certificate-dialog-action" data-close-certificate-dialog>Close</button>
+    </div>
+</dialog>
+
 <?php renderFooterScripts(false); ?>
 
 <script>
@@ -672,6 +870,158 @@ $activeFilters = [
                 });
             });
         }
+
+        const detailsDialog = document.getElementById('certificateDetailsDialog');
+        const detailsMessage = document.getElementById('certificateDetailsMessage');
+        const statusForm = document.getElementById('certificateStatusForm');
+        const archiveButton = document.getElementById('certificateDetailArchive');
+        const restoreButton = document.getElementById('certificateDetailRestore');
+        const printLink = document.getElementById('certificateDetailPrint');
+        let activeCertificate = null;
+
+        const setText = function (id, value) {
+            document.getElementById(id).textContent = value || '—';
+        };
+
+        const sendCertificateAction = async function (formData) {
+            const response = await fetch('certificates.php', {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin',
+                headers: {'X-Requested-With': 'XMLHttpRequest'}
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'The certificate request could not be updated.');
+            }
+            return result;
+        };
+
+        const openCertificateDetails = async function (certificateId) {
+            detailsMessage.textContent = 'Loading request details…';
+            document.getElementById('certificateTimelineList').replaceChildren();
+            detailsDialog.showModal();
+            try {
+                const response = await fetch('certificates.php?ajax=details&id=' + encodeURIComponent(certificateId), {
+                    credentials: 'same-origin',
+                    headers: {'X-Requested-With': 'XMLHttpRequest'}
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Could not load request details.');
+                }
+                const record = result.record;
+                activeCertificate = record;
+                detailsMessage.textContent = 'Request #' + String(record.id).padStart(6, '0') + (Number(record.is_archived) ? ' · Archived' : '');
+                setText('certificateDetailResident', record.resident_name);
+                setText('certificateDetailResidentNumber', record.resident_number || (record.linked_resident_id ? 'Not recorded' : 'Record not linked'));
+                setText('certificateDetailRequester', record.requested_by);
+                setText('certificateDetailRelationship', record.requester_relationship || 'Self / Staff');
+                setText('certificateDetailType', record.certificate_type);
+                setText('certificateDetailRequestDate', record.request_date);
+                setText('certificateDetailPurpose', record.purpose);
+                setText('certificateDetailRemarks', record.remarks);
+                document.getElementById('certificateDetailId').value = record.id;
+                document.getElementById('certificateDetailStatus').value = record.status;
+                document.getElementById('certificateDetailStatus').disabled = Boolean(Number(record.is_archived));
+                statusForm.querySelector('button[type="submit"]').disabled = Boolean(Number(record.is_archived));
+                statusForm.hidden = Boolean(Number(record.is_archived));
+                printLink.href = record.generator_url;
+                archiveButton.hidden = !record.can_archive;
+                restoreButton.hidden = !Number(record.is_archived);
+                const archivedAtRow = document.getElementById('certificateArchivedAtRow');
+                archivedAtRow.hidden = !Number(record.is_archived);
+                setText('certificateDetailArchivedAt', record.archived_at || 'Date not recorded');
+
+                const timeline = document.getElementById('certificateTimelineList');
+                record.timeline.forEach(function (event) {
+                    const item = document.createElement('li');
+                    const activity = document.createElement('strong');
+                    const date = document.createElement('time');
+                    activity.textContent = event.activity;
+                    if (event.date) {
+                        const parsedDate = new Date(event.date.replace(' ', 'T'));
+                        date.textContent = Number.isNaN(parsedDate.getTime())
+                            ? event.date
+                            : new Intl.DateTimeFormat(undefined, {dateStyle: 'medium', timeStyle: event.date.includes(':') ? 'short' : undefined}).format(parsedDate);
+                        date.dateTime = event.date.replace(' ', 'T');
+                    } else {
+                        date.textContent = 'Date not recorded';
+                    }
+                    item.append(activity, date);
+                    timeline.append(item);
+                });
+                detailsMessage.textContent = 'Request #' + String(record.id).padStart(6, '0') + (Number(record.is_archived) ? ' · Archived' : '');
+            } catch (error) {
+                console.error('Could not load certificate details:', error);
+                detailsMessage.textContent = error.message;
+            }
+        };
+
+        document.addEventListener('click', function (event) {
+            const trigger = event.target.closest('.certificate-details-trigger');
+            if (trigger) {
+                event.preventDefault();
+                openCertificateDetails(trigger.dataset.certificateId);
+                trigger.closest('.certificate-actions-menu')?.removeAttribute('open');
+            }
+            if (event.target.closest('[data-close-certificate-dialog]')) {
+                detailsDialog.close();
+            }
+        });
+
+        document.addEventListener('submit', async function (event) {
+            const actionForm = event.target.closest('[data-certificate-action-form]');
+            if (!actionForm) return;
+            event.preventDefault();
+            const action = actionForm.querySelector('[name="action"]').value;
+            const label = action === 'archive_request' ? 'Archive this request?' : 'Restore this request?';
+            if (!window.confirm(label)) return;
+            try {
+                const result = await sendCertificateAction(new FormData(actionForm));
+                window.location.reload();
+            } catch (error) {
+                window.alert(error.message);
+            }
+        });
+
+        statusForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            try {
+                await sendCertificateAction(new FormData(statusForm));
+                window.location.reload();
+            } catch (error) {
+                detailsMessage.textContent = error.message;
+            }
+        });
+
+        archiveButton.addEventListener('click', async function () {
+            if (!activeCertificate || !window.confirm('Archive this certificate request?')) return;
+            const formData = new FormData(statusForm);
+            formData.set('action', 'archive_request');
+            try {
+                await sendCertificateAction(formData);
+                window.location.reload();
+            } catch (error) {
+                detailsMessage.textContent = error.message;
+            }
+        });
+
+        restoreButton.addEventListener('click', async function () {
+            if (!activeCertificate || !window.confirm('Restore this certificate request?')) return;
+            const formData = new FormData(statusForm);
+            formData.set('action', 'restore_request');
+            try {
+                await sendCertificateAction(formData);
+                window.location.reload();
+            } catch (error) {
+                detailsMessage.textContent = error.message;
+            }
+        });
+
+        detailsDialog.addEventListener('click', function (event) {
+            if (event.target === detailsDialog) detailsDialog.close();
+        });
     });
 </script>
 

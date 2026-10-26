@@ -13,7 +13,14 @@ if ($isResident && ($id > 0 || !$currentResident)) {
 }
 
 if ($id > 0) {
-    $stmt = $conn->prepare('SELECT c.*, r.first_name, r.last_name, u.first_name AS requester_first_name, u.last_name AS requester_last_name FROM certificates c LEFT JOIN residents r ON c.resident_id = r.id LEFT JOIN users u ON c.requested_by_user_id = u.id WHERE c.id = ?');
+    $stmt = $conn->prepare('SELECT c.*, r.id AS linked_resident_id, r.resident_number,
+                            CASE WHEN r.id IS NULL THEN CASE WHEN c.resident_id IS NULL THEN "No linked resident record" ELSE CONCAT("Missing resident record (#", c.resident_id, ")") END
+                                 ELSE COALESCE(NULLIF(CONCAT_WS(" ", r.first_name, r.middle_name, r.last_name, r.suffix), ""), CONCAT("Missing resident name (#", c.resident_id, ")")) END AS linked_resident_name,
+                            u.first_name AS requester_first_name, u.last_name AS requester_last_name
+                            FROM certificates c
+                            LEFT JOIN residents r ON c.resident_id = r.id
+                            LEFT JOIN users u ON c.requested_by_user_id = u.id
+                            WHERE c.id = ?');
     $stmt->bind_param('i', $id);
     $stmt->execute();
     $certificate = $stmt->get_result()->fetch_assoc();
@@ -47,7 +54,7 @@ $residents = $isResident
     : $conn->query('SELECT id, resident_number, first_name, middle_name, last_name, suffix FROM residents ORDER BY last_name ASC, first_name ASC');
 $residentOptions = $residents->fetch_all(MYSQLI_ASSOC);
 
-$statusOptions = ['Pending', 'Approved', 'Released', 'Rejected'];
+$statusOptions = ['Pending', 'Processing', 'Approved', 'Released', 'Rejected', 'Cancelled'];
 
 $values = [
     'resident_id'      => $certificate['resident_id'] ?? '',
@@ -111,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $requestedByUserId = (int)($_SESSION['user_id'] ?? 0);
     $requesterRelationship = $values['requester_relationship'] !== '' ? $values['requester_relationship'] : null;
     $residentExists = false;
-    if (!$isResident && $residentId > 0) {
+    if ($residentId > 0) {
         $residentStmt = $conn->prepare('SELECT id FROM residents WHERE id = ?');
         $residentStmt->bind_param('i', $residentId);
         $residentStmt->execute();
@@ -123,8 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Keep the form open with the validation message.
     } elseif ($residentId <= 0) {
         $error = 'Please choose the resident requesting the certificate.';
-    } elseif (!$isResident && !$residentExists) {
-        $error = 'Choose a resident from the search suggestions.';
+    } elseif (!$residentExists) {
+        $error = 'Choose a valid resident record before saving this certificate request.';
     } elseif ($values['certificate_type'] === '') {
         $error = 'Please choose a certificate type.';
     } elseif (!in_array($values['status'], $statusOptions, true)) {
@@ -348,7 +355,7 @@ foreach ($residentOptions as $residentOption) {
                 <table class="record-table">
                     <tbody>
                         <tr><th>Request ID</th><td><?php echo h($certificate['id']); ?></td></tr>
-                        <tr><th>Resident</th><td><?php echo h(trim(($certificate['first_name'] ?? '') . ' ' . ($certificate['last_name'] ?? '')) ?: 'Unknown'); ?></td></tr>
+                        <tr><th>Resident</th><td><?php echo h($certificate['linked_resident_name']); ?><?php if (!empty($certificate['resident_number'])): ?> (<?php echo h($certificate['resident_number']); ?>)<?php endif; ?></td></tr>
                         <?php if (!empty($certificate['requester_first_name'])): ?>
                         <tr><th>Requested By</th><td><?php echo h(trim($certificate['requester_first_name'] . ' ' . $certificate['requester_last_name'])); ?></td></tr>
                         <?php endif; ?>
