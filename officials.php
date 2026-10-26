@@ -860,7 +860,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
         <?php if ($uploadError !== ''): ?>
             <div class="alert alert-danger" role="alert"><?php echo h($uploadError); ?></div>
-        <?php elseif ($officialError !== ''): ?>
+        <?php elseif ($officialError !== '' && !$archiveDialogShouldReopen): ?>
             <div class="alert alert-danger" role="alert"><?php echo h($officialError); ?></div>
         <?php elseif ($photoSuccess): ?>
             <?php renderToast('Official photo uploaded successfully.'); ?>
