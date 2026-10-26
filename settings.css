@@ -803,3 +803,130 @@ hr{
     }
 
 }
+
+.personnel-archive-dialog{
+    width:min(460px,calc(100% - 32px));
+    max-width:none;
+    padding:32px;
+    border:1px solid #e6ebf2;
+    border-radius:20px;
+    color:#344054;
+    box-shadow:0 24px 70px rgba(16,24,40,.24);
+}
+
+.personnel-archive-dialog[open]{
+    animation:personnel-archive-enter .18s ease-out;
+}
+
+.personnel-archive-dialog::backdrop{
+    background:rgba(16,32,58,.48);
+    backdrop-filter:blur(3px);
+}
+
+.personnel-archive-dialog__icon{
+    display:grid;
+    width:52px;
+    height:52px;
+    place-items:center;
+    margin-bottom:20px;
+    border-radius:16px;
+    background:#fff1f0;
+    color:#c9372c;
+    font-size:21px;
+}
+
+.personnel-archive-dialog h2{
+    margin:0 0 8px;
+    color:#172b4d;
+    font-size:22px;
+    font-weight:700;
+}
+
+.personnel-archive-dialog p{
+    margin:0;
+    color:#667085;
+    font-size:14px;
+    line-height:1.65;
+}
+
+.personnel-archive-dialog__person{
+    margin-bottom:8px !important;
+    color:#0b4a9e !important;
+    font-size:15px !important;
+    font-weight:600;
+}
+
+.personnel-archive-dialog__note{
+    display:flex;
+    gap:10px;
+    align-items:flex-start;
+    margin-top:20px;
+    padding:12px 14px;
+    border:1px solid #dbeafe;
+    border-radius:12px;
+    background:#f3f8ff;
+    color:#315b8e;
+    font-size:12px;
+    line-height:1.55;
+}
+
+.personnel-archive-dialog__note i{
+    margin-top:2px;
+    color:#0b4a9e;
+}
+
+.personnel-archive-dialog__actions{
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    margin-top:26px;
+}
+
+.personnel-archive-dialog__actions .btn{
+    width:auto;
+    margin:0;
+    padding:9px 16px;
+    border-radius:10px;
+    font-size:13px;
+    font-weight:600;
+}
+
+.personnel-archive-dialog__actions .btn-danger{
+    border-color:#c9372c;
+    background:#c9372c;
+}
+
+.personnel-archive-dialog__actions .btn-danger:hover{
+    border-color:#a92d24;
+    background:#a92d24;
+}
+
+.personnel-archive-dialog__actions .btn:focus-visible{
+    outline:3px solid rgba(11,74,158,.3);
+    outline-offset:2px;
+}
+
+@keyframes personnel-archive-enter{
+    from{opacity:0;transform:translateY(8px) scale(.98)}
+    to{opacity:1;transform:translateY(0) scale(1)}
+}
+
+@media (max-width:480px){
+    .personnel-archive-dialog{
+        padding:25px 22px;
+    }
+
+    .personnel-archive-dialog__actions{
+        flex-direction:column-reverse;
+    }
+
+    .personnel-archive-dialog__actions .btn{
+        width:100%;
+    }
+}
+
+@media (prefers-reduced-motion:reduce){
+    .personnel-archive-dialog[open]{
+        animation:none;
+    }
+}

@@ -106,7 +106,7 @@ function personnelReturnUrl(array $source, string $notice): string {
     return 'officials.php?' . http_build_query($pageState) . $anchor;
 }
 
-function personnelArchiveForm(int $officialId, string $role, string $pageParam, array $pageState): string {
+function personnelArchiveForm(int $officialId, string $role, string $personName, string $pageParam, array $pageState): string {
     $fields = csrfField()
         . '<input type="hidden" name="form_type" value="archive_official">'
         . '<input type="hidden" name="official_id" value="' . $officialId . '">'
@@ -116,7 +116,7 @@ function personnelArchiveForm(int $officialId, string $role, string $pageParam, 
     }
     $fields .= '<input type="hidden" name="return_section" value="' . h($pageParam) . '">';
 
-    return '<form method="post" action="officials.php" class="d-inline" onsubmit="return confirm(\'Archive this personnel account? It will no longer be active and its slot will be freed.\');">'
+    return '<form method="post" action="officials.php" class="d-inline" data-personnel-archive-form data-person-name="' . h(trim($personName)) . '">'
         . $fields
         . '<button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive</button>'
         . '</form>';
@@ -608,7 +608,7 @@ function renderPersonnelTable(mysqli_result $people, string $title, string $icon
                 echo '<span class="text-muted">No photo</span>';
             }
             $archiveButton = $person['status'] !== 'Archived'
-                ? ' ' . personnelArchiveForm((int)$person['id'], (string)$person['role'], $pageParam, $pageState)
+                ? ' ' . personnelArchiveForm((int)$person['id'], (string)$person['role'], $personName, $pageParam, $pageState)
                 : '';
             echo '</td><td>' . h($personName) . '</td><td>' . h($person['position'] ?: 'Not set') . '</td><td>' . h($person['email']) . '</td><td>' . h($person['term'] ?: 'Not set') . (!empty($person['term_end']) ? '<br><small class="text-muted">Ends ' . h(date('M d, Y', strtotime($person['term_end']))) . '</small>' : '') . '</td><td><span class="badge ' . ($person['status'] === 'Active' ? 'bg-success' : 'bg-secondary') . '">' . h($person['status']) . '</span></td><td class="text-nowrap"><a href="record_view.php?type=personnel&amp;id=' . (int)$person['id'] . '" class="btn btn-sm btn-outline-primary">View</a> <a href="' . h(personnelEditUrl((int)$person['id'], $pageParam, $pageState)) . '" class="btn btn-sm btn-outline-secondary">Edit</a>' . $archiveButton . '</td></tr>';
         }
@@ -962,7 +962,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                                                 <a href="record_view.php?type=personnel&amp;id=<?php echo (int)$official['id']; ?>" class="btn btn-sm btn-outline-primary">View</a>
                                                 <a href="<?php echo h(personnelEditUrl((int)$official['id'], 'official_page', $personnelPageState)); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
                                                 <?php if ($official['status'] !== 'Archived'): ?>
-                                                    <?php echo personnelArchiveForm((int)$official['id'], 'staff', 'official_page', $personnelPageState); ?>
+                                                    <?php echo personnelArchiveForm((int)$official['id'], 'staff', trim($official['first_name'] . ' ' . $official['last_name']), 'official_page', $personnelPageState); ?>
                                                 <?php endif; ?>
                                             </td>
 
@@ -998,6 +998,58 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     </main>
 
 </div>
+
+<dialog class="personnel-archive-dialog" id="personnelArchiveDialog" aria-labelledby="personnelArchiveTitle" aria-describedby="personnelArchiveDescription">
+    <div class="personnel-archive-dialog__icon" aria-hidden="true">
+        <i class="fa-solid fa-box-archive"></i>
+    </div>
+    <h2 id="personnelArchiveTitle">Archive personnel?</h2>
+    <p class="personnel-archive-dialog__person" id="personnelArchiveName"></p>
+    <p id="personnelArchiveDescription">This account will be marked as archived and won’t appear among active personnel. Its personnel slot will be available again.</p>
+    <div class="personnel-archive-dialog__note">
+        <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+        <span>You can still find archived accounts by filtering the list by status.</span>
+    </div>
+    <div class="personnel-archive-dialog__actions">
+        <button type="button" class="btn btn-outline-secondary" id="cancelPersonnelArchive">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmPersonnelArchive"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive account</button>
+    </div>
+</dialog>
+
+<script>
+(() => {
+    const dialog = document.getElementById('personnelArchiveDialog');
+    const personName = document.getElementById('personnelArchiveName');
+    const cancelButton = document.getElementById('cancelPersonnelArchive');
+    const confirmButton = document.getElementById('confirmPersonnelArchive');
+    let pendingArchiveForm = null;
+
+    document.querySelectorAll('[data-personnel-archive-form]').forEach((form) => {
+        form.addEventListener('submit', (event) => {
+            if (typeof dialog.showModal !== 'function') return;
+            event.preventDefault();
+            pendingArchiveForm = form;
+            personName.textContent = form.dataset.personName || 'Selected personnel account';
+            dialog.showModal();
+            cancelButton.focus();
+        });
+    });
+
+    cancelButton.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', (event) => {
+        if (event.target === dialog) dialog.close();
+    });
+    confirmButton.addEventListener('click', () => {
+        if (!pendingArchiveForm) return;
+        confirmButton.disabled = true;
+        pendingArchiveForm.submit();
+    });
+    dialog.addEventListener('close', () => {
+        pendingArchiveForm = null;
+        confirmButton.disabled = false;
+    });
+})();
+</script>
 
 <?php renderFooterScripts(); ?>
 
