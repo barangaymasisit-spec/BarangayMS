@@ -29,7 +29,7 @@ $photoSrc = null;
 
 $queries = [
     'personnel' => [
-        'sql' => "SELECT id, first_name, last_name, username, email, role, status, term, term_start, term_end, position, address, contact_number, photo_path, photo_data, photo_mime, created_at, updated_at FROM users WHERE id = ? AND role IN ('admin', 'staff', 'health_worker', 'security_force')",
+        'sql' => "SELECT u.id, COALESCE(NULLIF(r.first_name, ''), u.first_name) AS first_name, COALESCE(NULLIF(r.last_name, ''), u.last_name) AS last_name, u.username, u.email, u.role, u.status, u.term, u.term_start, u.term_end, u.position, u.address, u.contact_number, COALESCE(NULLIF(r.photo_path, ''), NULLIF(u.photo_path, '')) AS photo_path, u.photo_data, u.photo_mime, u.created_at, u.updated_at FROM users u LEFT JOIN residents r ON r.id = u.resident_id WHERE u.id = ? AND u.role IN ('admin', 'staff', 'health_worker', 'security_force')",
         'kind' => 'Barangay Personnel',
         'identifier_label' => 'ACCOUNT ID',
     ],
@@ -77,10 +77,10 @@ if ($record) {
     if ($type === 'personnel') {
         $personnelRole = (string)$record['role'];
         $recordTitle = trim($record['first_name'] . ' ' . $record['last_name']);
-        if (!empty($record['photo_data']) && !empty($record['photo_mime'])) {
-            $photoSrc = 'data:' . $record['photo_mime'] . ';base64,' . base64_encode($record['photo_data']);
-        } elseif (!empty($record['photo_path']) && is_file(__DIR__ . '/' . $record['photo_path'])) {
+        if (!empty($record['photo_path']) && is_file(__DIR__ . '/' . $record['photo_path'])) {
             $photoSrc = $record['photo_path'];
+        } elseif (!empty($record['photo_data']) && !empty($record['photo_mime'])) {
+            $photoSrc = 'data:' . $record['photo_mime'] . ';base64,' . base64_encode($record['photo_data']);
         }
         $sections = [
             'Account Information' => [

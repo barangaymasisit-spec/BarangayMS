@@ -76,6 +76,9 @@ $editOfficial = null;
 $isNewTermMode = ($_GET['new_term'] ?? '') === '1';
 
 function officialPhotoSrc(array $person): ?string {
+    if (!empty($person['resident_photo_path']) && is_file(__DIR__ . '/' . $person['resident_photo_path'])) {
+        return $person['resident_photo_path'];
+    }
     if (!empty($person['photo_path']) && is_file(__DIR__ . '/' . $person['photo_path'])) {
         return $person['photo_path'];
     }
@@ -267,8 +270,8 @@ if ($editAdminId > 0) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'official_account') {
     $officialId = (int)($_POST['official_id'] ?? 0);
-    $firstName = trim($_POST['first_name'] ?? '');
-    $lastName = trim($_POST['last_name'] ?? '');
+    $firstName = '';
+    $lastName = '';
     $username = trim($_POST['username'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $role = $_POST['role'] ?? 'staff';
@@ -292,20 +295,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
     $photoMime = null;
     $photoFile = $_FILES['official_photo'] ?? null;
     $allowedPhotoTypes = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
-    $residentCheck = $conn->prepare("SELECT id FROM residents WHERE id = ? AND COALESCE(resident_status, '') NOT IN ('Deceased', 'Moved Out')");
+    $residentCheck = $conn->prepare("SELECT id, first_name, last_name, email FROM residents WHERE id = ? AND COALESCE(resident_status, '') NOT IN ('Deceased', 'Moved Out')");
     $residentCheck->bind_param('i', $residentId);
     $residentCheck->execute();
     $validResident = $residentCheck->get_result()->fetch_assoc();
     $residentCheck->close();
+    if ($validResident) {
+        $firstName = trim((string)$validResident['first_name']);
+        $lastName = trim((string)$validResident['last_name']);
+        if ($email === '') {
+            $email = trim((string)($validResident['email'] ?? ''));
+        }
+    }
 
-    if ($firstName === '' || $lastName === '' || $username === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $officialError = 'Please provide valid name, username, and email details.';
+    if ($username === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $officialError = 'Please provide a username and valid email address.';
     } elseif (!in_array($role, ['staff', 'health_worker', 'security_force'], true) || !in_array($status, ['Active', 'Inactive', 'Archived'], true)) {
         $officialError = 'Invalid personnel type or status.';
     } elseif ($residentId <= 0) {
         $officialError = 'Select a resident record before adding personnel.';
     } elseif (!$validResident) {
         $officialError = 'Select an active resident record before adding personnel.';
+    } elseif ($firstName === '' || $lastName === '') {
+        $officialError = 'The selected resident record needs a first and last name before personnel can be added.';
     } elseif ($position === '') {
         $officialError = 'Please choose an official position.';
     } elseif ($termStart !== null && $termEnd !== null && $termStart > $termEnd) {
@@ -496,6 +508,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
         'term' => $_POST['term'] ?? '',
         'term_start' => $_POST['term_start'] ?? '',
         'term_end' => $_POST['term_end'] ?? '',
+        'first_name' => $firstName,
+        'last_name' => $lastName,
         'position' => $_POST['position'] ?? '',
         'resident_id' => $_POST['resident_id'] ?? '',
         'new_term' => $isNewTermMode,
@@ -689,29 +703,29 @@ foreach ($personnelLimits as $personnelRole => $limit) {
     $personnelSlotCounts[$personnelRole] = (int)$countStmt->get_result()->fetch_row()[0];
     $countStmt->close();
 }
-$personnelResidentsResult = $conn->query("SELECT id, resident_number, first_name, middle_name, last_name, suffix FROM residents WHERE COALESCE(resident_status, '') NOT IN ('Deceased', 'Moved Out') ORDER BY last_name, first_name");
+$personnelResidentsResult = $conn->query("SELECT id, resident_number, first_name, middle_name, last_name, suffix, email, photo_path, resident_status, house_number, street, purok FROM residents WHERE COALESCE(resident_status, '') NOT IN ('Deceased', 'Moved Out') ORDER BY last_name, first_name");
 $personnelResidents = $personnelResidentsResult->fetch_all(MYSQLI_ASSOC);
 
 function fetchPersonnelPage(mysqli $conn, string $role, string $search, string $statusFilter, int $page, int $perPage): array {
-    $where = ['role = ?'];
+    $where = ['u.role = ?'];
     $params = [$role];
     $types = 's';
 
     if ($search !== '') {
         $like = '%' . $search . '%';
-        $where[] = '(first_name LIKE ? OR last_name LIKE ? OR username LIKE ? OR email LIKE ? OR position LIKE ? OR term LIKE ?)';
-        $params = array_merge($params, [$like, $like, $like, $like, $like, $like]);
-        $types .= 'ssssss';
+        $where[] = '(r.first_name LIKE ? OR r.last_name LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR u.username LIKE ? OR u.email LIKE ? OR u.position LIKE ? OR u.term LIKE ?)';
+        $params = array_merge($params, [$like, $like, $like, $like, $like, $like, $like, $like]);
+        $types .= 'ssssssss';
     }
 
     if ($statusFilter !== 'all') {
-        $where[] = 'status = ?';
+        $where[] = 'u.status = ?';
         $params[] = $statusFilter;
         $types .= 's';
     }
 
-    $sql = "SELECT id, first_name, last_name, username, role, email, status, term, term_end, archived_at, archive_reason, position, photo_path, photo_data IS NOT NULL AS has_photo_data FROM users WHERE " . implode(' AND ', $where) . " ORDER BY CASE WHEN LOWER(position) LIKE '%vice%' OR LOWER(position) LIKE '%deputy%' THEN 2 WHEN LOWER(position) LIKE '%captain%' OR LOWER(position) LIKE '%punong barangay%' THEN 1 WHEN LOWER(position) LIKE '%kagawad%' OR LOWER(position) LIKE '%councilor%' THEN 3 WHEN LOWER(position) LIKE '%secretary%' THEN 4 WHEN LOWER(position) LIKE '%treasurer%' THEN 5 ELSE 99 END ASC, position ASC, last_name ASC, first_name ASC LIMIT ? OFFSET ?";
-    $countSql = 'SELECT COUNT(*) FROM users WHERE ' . implode(' AND ', $where);
+    $sql = "SELECT u.id, COALESCE(NULLIF(r.first_name, ''), u.first_name) AS first_name, COALESCE(NULLIF(r.last_name, ''), u.last_name) AS last_name, u.username, u.role, u.email, u.status, u.term, u.term_end, u.archived_at, u.archive_reason, u.position, u.photo_path, r.photo_path AS resident_photo_path, r.resident_number AS linked_resident_number, r.email AS resident_email, r.resident_status AS linked_resident_status, r.house_number, r.street, r.purok, u.photo_data IS NOT NULL AS has_photo_data FROM users u LEFT JOIN residents r ON r.id = u.resident_id WHERE " . implode(' AND ', $where) . " ORDER BY CASE WHEN LOWER(u.position) LIKE '%vice%' OR LOWER(u.position) LIKE '%deputy%' THEN 2 WHEN LOWER(u.position) LIKE '%captain%' OR LOWER(u.position) LIKE '%punong barangay%' THEN 1 WHEN LOWER(u.position) LIKE '%kagawad%' OR LOWER(u.position) LIKE '%councilor%' THEN 3 WHEN LOWER(u.position) LIKE '%secretary%' THEN 4 WHEN LOWER(u.position) LIKE '%treasurer%' THEN 5 ELSE 99 END ASC, u.position ASC, last_name ASC, first_name ASC LIMIT ? OFFSET ?";
+    $countSql = 'SELECT COUNT(*) FROM users u LEFT JOIN residents r ON r.id = u.resident_id WHERE ' . implode(' AND ', $where);
 
     $countStmt = $conn->prepare($countSql);
     $countParams = $params;
@@ -1034,11 +1048,56 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                         <?php endforeach; ?>
                         <input type="hidden" name="return_section" value="<?php echo h($_POST['return_section'] ?? $_GET['return_section'] ?? ''); ?>">
                         <?php if ($isNewTermMode): ?><input type="hidden" name="new_term" value="1"><?php endif; ?>
-                        <div class="col-md-3"><label class="form-label" for="officialFirstName">First Name</label><input class="form-control" id="officialFirstName" name="first_name" required value="<?php echo h($editOfficial['first_name'] ?? ''); ?>" placeholder="First Name"></div>
-                        <div class="col-md-3"><label class="form-label" for="officialLastName">Last Name</label><input class="form-control" id="officialLastName" name="last_name" required value="<?php echo h($editOfficial['last_name'] ?? ''); ?>" placeholder="Last Name"></div>
-                        <div class="col-md-6"><label class="form-label" for="officialResidentId">Resident Record *</label><select class="form-select" id="officialResidentId" name="resident_id" required><option value="">Select a registered resident</option><?php foreach ($personnelResidents as $residentOption): ?><option value="<?php echo (int)$residentOption['id']; ?>"<?php echo (int)($editOfficial['resident_id'] ?? $_POST['resident_id'] ?? 0) === (int)$residentOption['id'] ? ' selected' : ''; ?>><?php echo h(trim(implode(' ', array_filter([$residentOption['last_name'] . ',', $residentOption['first_name'], $residentOption['middle_name'], $residentOption['suffix']])) . ' (' . $residentOption['resident_number'] . ')')); ?></option><?php endforeach; ?></select><small class="text-muted">Officials and personnel must be registered in the Residents list.</small></div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="officialResidentId">Select Resident <span class="text-danger">*</span></label>
+                            <input class="form-control mb-2" id="officialResidentSearch" type="search" aria-label="Search residents by name or resident ID" placeholder="Search by name or resident ID" autocomplete="off">
+                            <select class="form-select" id="officialResidentId" name="resident_id" required>
+                                <option value="">Select a registered resident</option>
+                                <?php foreach ($personnelResidents as $residentOption): ?>
+                                    <?php
+                                    $residentFullName = trim(implode(' ', array_filter([
+                                        $residentOption['first_name'],
+                                        $residentOption['middle_name'],
+                                        $residentOption['last_name'],
+                                        $residentOption['suffix'],
+                                    ])));
+                                    $residentAddress = implode(', ', array_filter([
+                                        trim((string)($residentOption['house_number'] ?? '')),
+                                        trim((string)($residentOption['street'] ?? '')),
+                                        trim((string)($residentOption['purok'] ?? '')),
+                                    ]));
+                                    $residentOptionSearch = strtolower($residentFullName . ' ' . $residentOption['resident_number']);
+                                    ?>
+                                    <option value="<?php echo (int)$residentOption['id']; ?>"
+                                            data-search="<?php echo h($residentOptionSearch); ?>"
+                                            data-full-name="<?php echo h($residentFullName); ?>"
+                                            data-resident-number="<?php echo h($residentOption['resident_number']); ?>"
+                                            data-email="<?php echo h($residentOption['email'] ?? ''); ?>"
+                                            data-address="<?php echo h($residentAddress); ?>"
+                                            data-status="<?php echo h($residentOption['resident_status'] ?? 'Active'); ?>"
+                                            data-photo="<?php echo h($residentOption['photo_path'] ?? ''); ?>"
+                                        <?php echo (int)($editOfficial['resident_id'] ?? $_POST['resident_id'] ?? 0) === (int)$residentOption['id'] ? ' selected' : ''; ?>>
+                                        <?php echo h($residentFullName . ' (' . $residentOption['resident_number'] . ')'); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small class="text-muted">Choose a registered resident. Name and profile photo will come from this record.</small>
+                            <div class="mt-2"><span class="text-muted">Resident not found?</span> <a href="resident_form.php">Register New Resident</a></div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="selected-resident-card" id="selectedResidentCard" hidden>
+                                <img id="selectedResidentPhoto" src="user.svg" alt="" class="selected-resident-card__photo">
+                                <div class="selected-resident-card__details">
+                                    <span class="selected-resident-card__eyebrow">SELECTED RESIDENT</span>
+                                    <strong id="selectedResidentName"></strong>
+                                    <span id="selectedResidentNumber"></span>
+                                    <span id="selectedResidentAddress"></span>
+                                    <span id="selectedResidentStatus"></span>
+                                </div>
+                            </div>
+                        </div>
                         <div class="col-md-3"><label class="form-label" for="officialUsername">Username</label><input class="form-control" id="officialUsername" name="username" required value="<?php echo h($editOfficial['username'] ?? ''); ?>" placeholder="Username"></div>
-                        <div class="col-md-3"><label class="form-label" for="officialEmail">Email</label><input type="email" class="form-control" id="officialEmail" name="email" required value="<?php echo h($editOfficial['email'] ?? ''); ?>" placeholder="Email Address"></div>
+                        <div class="col-md-3"><label class="form-label" for="officialEmail">Email</label><input type="email" class="form-control" id="officialEmail" name="email" required value="<?php echo h($editOfficial['email'] ?? $_POST['email'] ?? ''); ?>" placeholder="Auto-filled from resident record"><small class="text-muted">Auto-fills when the resident has an email address.</small></div>
                         <input type="hidden" name="term" value="<?php echo h($editOfficial['term'] ?? ''); ?>">
                         <div class="col-md-3"><label class="form-label" for="officialTermStart">Term Start</label><input type="date" class="form-control" id="officialTermStart" name="term_start" value="<?php echo h($editOfficial['term_start'] ?? ''); ?>"<?php echo $isNewTermMode ? ' required' : ''; ?>></div>
                         <div class="col-md-3"><label class="form-label" for="officialTermEnd">Term End</label><input type="date" class="form-control" id="officialTermEnd" name="term_end" value="<?php echo h($editOfficial['term_end'] ?? ''); ?>"<?php echo $isNewTermMode ? ' required' : ''; ?>><small class="text-muted"><?php echo $isNewTermMode ? 'Enter the newly elected term dates.' : 'Automatically set to Inactive after this date. Archive to free a personnel slot.'; ?></small></div>
@@ -1046,7 +1105,6 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                         <div class="col-md-3"><label class="form-label" for="officialPosition">Position</label><input class="form-control" id="officialPosition" name="position" required value="<?php echo h($editOfficial['position'] ?? ''); ?>" placeholder="e.g. Barangay Captain"></div>
                         <div class="col-md-3"><label class="form-label" for="officialStatus">Status</label><select class="form-select" id="officialStatus" name="status"><option value="Active"<?php echo ($editOfficial['status'] ?? 'Active') === 'Active' ? ' selected' : ''; ?>>Active</option><option value="Inactive"<?php echo ($editOfficial['status'] ?? '') === 'Inactive' ? ' selected' : ''; ?>>Inactive</option><option value="Archived"<?php echo ($editOfficial['status'] ?? '') === 'Archived' ? ' selected' : ''; ?>>Archived</option></select><small class="text-muted">Inactive records still use a slot. Archive to make the position available.</small></div>
                         <div class="col-md-3"><label class="form-label" for="officialPassword">Password <?php echo $editOfficial ? '(optional)' : ''; ?></label><input type="password" class="form-control" id="officialPassword" name="password"<?php echo $editOfficial ? '' : ' required'; ?> placeholder="<?php echo $editOfficial ? 'Leave blank to keep current' : 'At least 6 characters'; ?>"></div>
-                        <div class="col-md-6"><label class="form-label" for="officialPhoto">Official Photo</label><input type="file" class="form-control" id="officialPhoto" name="official_photo" accept="image/jpeg,image/png,image/webp"><small class="text-muted">JPG, PNG, or WEBP up to 5 MB.</small></div>
                         <div class="col-12"><button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> <?php echo $isNewTermMode ? 'Save New Term' : ($editOfficial ? 'Update Personnel' : 'Add Personnel'); ?></button><?php if ($editOfficial): ?><a href="<?php echo h('officials.php?' . http_build_query(array_merge($personnelPageState, ['official_view' => $isNewTermMode ? 'archived' : $officialView])) . '#officials-list'); ?>" class="btn btn-secondary ms-2">Cancel</a><?php endif; ?></div>
                     </form>
                 </div>
@@ -1263,6 +1321,43 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     let activePersonnelSection = '';
     document.documentElement.classList.add('personnel-scroll-stable');
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
+    const residentSelect = document.getElementById('officialResidentId');
+    const residentSearch = document.getElementById('officialResidentSearch');
+    const residentCard = document.getElementById('selectedResidentCard');
+    const updateResidentPreview = (option) => {
+        if (!option || !option.value) {
+            residentCard.hidden = true;
+            return;
+        }
+        residentCard.hidden = false;
+        document.getElementById('selectedResidentName').textContent = option.dataset.fullName || '';
+        document.getElementById('selectedResidentNumber').textContent = 'Resident ID: ' + (option.dataset.residentNumber || 'Not set');
+        document.getElementById('selectedResidentAddress').textContent = 'Address: ' + (option.dataset.address || 'Not provided');
+        document.getElementById('selectedResidentStatus').textContent = 'Resident Status: ' + (option.dataset.status || 'Active');
+        const photo = document.getElementById('selectedResidentPhoto');
+        photo.src = option.dataset.photo || 'user.svg';
+        photo.alt = 'Photo of ' + (option.dataset.fullName || 'selected resident');
+        photo.onerror = () => {
+            photo.onerror = null;
+            photo.src = 'user.svg';
+        };
+    };
+
+    if (residentSelect && residentSearch && residentCard) {
+        updateResidentPreview(residentSelect.selectedOptions[0]);
+        residentSearch.addEventListener('input', () => {
+            const searchTerm = residentSearch.value.trim().toLowerCase();
+            Array.from(residentSelect.options).forEach((option) => {
+                option.hidden = option.value !== '' && !option.selected && !option.dataset.search.includes(searchTerm);
+            });
+        });
+        residentSelect.addEventListener('change', () => {
+            const selectedResident = residentSelect.selectedOptions[0];
+            updateResidentPreview(selectedResident);
+            document.getElementById('officialEmail').value = selectedResident?.dataset.email || '';
+        });
+    }
 
     document.addEventListener('submit', (event) => {
         const form = event.target.closest('[data-personnel-confirm-form]');

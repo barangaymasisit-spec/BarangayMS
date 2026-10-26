@@ -815,6 +815,54 @@ hr{
     background:#f7f9fc;
 }
 
+.selected-resident-card{
+    display:flex;
+    min-height:100%;
+    align-items:center;
+    gap:15px;
+    padding:16px;
+    border:1px solid #dce8f7;
+    border-radius:14px;
+    background:linear-gradient(135deg,#f8fbff 0%,#eef5ff 100%);
+}
+
+.selected-resident-card[hidden]{
+    display:none;
+}
+
+.selected-resident-card__photo{
+    width:66px;
+    height:66px;
+    flex:0 0 66px;
+    border:3px solid #fff;
+    border-radius:50%;
+    background:#e5edf8;
+    box-shadow:0 3px 12px rgba(22,62,112,.12);
+    object-fit:cover;
+}
+
+.selected-resident-card__details{
+    display:grid;
+    gap:3px;
+    color:#52657e;
+    font-size:12px;
+    line-height:1.45;
+    overflow-wrap:anywhere;
+}
+
+.selected-resident-card__details strong{
+    color:#173b69;
+    font-size:15px;
+    font-weight:700;
+}
+
+.selected-resident-card__eyebrow{
+    color:#7489a3;
+    font-size:9px;
+    font-weight:700;
+    letter-spacing:.14em;
+}
+
 .official-status-tab{
     display:inline-flex;
     min-height:44px;
