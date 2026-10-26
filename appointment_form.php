@@ -135,13 +135,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($residentId > 0) {
-        $stmt = $conn->prepare('SELECT first_name, last_name FROM residents WHERE id = ?');
+        $stmt = $conn->prepare("SELECT CONCAT_WS(' ', NULLIF(first_name, ''), NULLIF(middle_name, ''), NULLIF(last_name, ''), NULLIF(suffix, '')) AS full_name FROM residents WHERE id = ?");
         $stmt->bind_param('i', $residentId);
         $stmt->execute();
         $linked = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if ($linked) {
-            $values['resident_name'] = trim($linked['first_name'] . ' ' . $linked['last_name']);
+            $values['resident_name'] = trim($linked['full_name']);
+        } else {
+            $error = 'That resident record is no longer available. Search for a current resident or enter an unregistered name.';
+            $values['resident_id'] = '';
+            $residentId = 0;
         }
     }
     $residentIdOrNull = $residentId > 0 ? $residentId : null;
@@ -296,6 +300,7 @@ foreach ($residentOptions as $resident) {
         $resident['suffix'],
     ])));
     $residentSearchChoices[] = [
+        'id' => (int)$resident['id'],
         'resident_number' => (string)$resident['resident_number'],
         'first_name' => (string)$resident['first_name'],
         'middle_name' => (string)($resident['middle_name'] ?? ''),
@@ -341,8 +346,8 @@ foreach ($residentOptions as $resident) {
                     <div class="row g-3">
 
                         <div class="col-md-6">
-                            <label class="form-label" for="resident_id">Resident</label>
                             <?php if ($isResident): ?>
+                            <label class="form-label" for="resident_id">Resident</label>
                             <fieldset class="form-control">
                                 <legend class="form-label mb-2">Who is this appointment for?</legend>
                                 <label class="me-3"><input type="radio" name="request_for" value="self"<?php echo $values['request_for'] === 'self' ? ' checked' : ''; ?>> For myself</label>
@@ -370,24 +375,18 @@ foreach ($residentOptions as $resident) {
                                 <div class="col-md-6"><label class="form-label" for="other_suffix">Suffix</label><input class="form-control" id="other_suffix" name="other_suffix" value="<?php echo h($values['other_suffix']); ?>" readonly></div>
                             </div>
                             <?php else: ?>
-                            <select class="form-select" id="resident_id" name="resident_id">
-                                <option value="">Not a registered resident</option>
-                                <?php foreach ($residentOptions as $resident): ?>
-                                    <option value="<?php echo (int)$resident['id']; ?>"<?php echo (int)$values['resident_id'] === (int)$resident['id'] ? ' selected' : ''; ?>>
-                                        <?php echo h(trim($resident['last_name'] . ', ' . $resident['first_name'] . ' ' . $resident['middle_name'] . ' ' . $resident['suffix']) . ' (' . $resident['resident_number'] . ')'); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
+                            <label class="form-label" for="resident_name">Resident *</label>
+                            <div class="resident-autocomplete" id="residentAutocomplete">
+                                <div class="resident-autocomplete-input">
+                                    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                    <input type="search" class="form-control" id="resident_name" name="resident_name" value="<?php echo h($values['resident_name']); ?>" placeholder="Search by resident name or ID..." autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="residentSearchResults" required>
+                                    <input type="hidden" id="resident_id" name="resident_id" value="<?php echo h($values['resident_id']); ?>">
+                                </div>
+                                <div class="resident-search-results" id="residentSearchResults" role="listbox" hidden></div>
+                                <small class="resident-search-hint" id="residentSearchHint">Select a registered resident, or enter a name if they are not registered.</small>
+                            </div>
                             <?php endif; ?>
                         </div>
-
-                        <?php if (!$isResident): ?>
-                        <div class="col-md-6">
-                            <label class="form-label" for="resident_name">Name *</label>
-                            <input type="text" class="form-control" id="resident_name" name="resident_name" value="<?php echo h($values['resident_name']); ?>"<?php echo $isResident ? ' readonly' : ''; ?>>
-                            <small class="text-muted">Filled in automatically when a resident is selected.</small>
-                        </div>
-                        <?php endif; ?>
 
                         <div class="col-md-6">
                             <label class="form-label" for="purpose">Purpose *</label>
@@ -563,6 +562,142 @@ foreach ($residentOptions as $resident) {
     }
     requestForInputs.forEach((input) => input.addEventListener('change', updateRecipientFields));
     updateRecipientFields();
+</script>
+<?php endif; ?>
+<?php if (!$isResident && $showForm): ?>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const autocomplete = document.getElementById('residentAutocomplete');
+        const searchInput = document.getElementById('resident_name');
+        const residentIdInput = document.getElementById('resident_id');
+        const results = document.getElementById('residentSearchResults');
+        const hint = document.getElementById('residentSearchHint');
+        const residents = <?php echo json_encode($residentSearchChoices, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+        let activeIndex = -1;
+
+        const closeResults = function () {
+            results.hidden = true;
+            searchInput.setAttribute('aria-expanded', 'false');
+            searchInput.removeAttribute('aria-activedescendant');
+            activeIndex = -1;
+        };
+
+        const chooseResident = function (resident) {
+            searchInput.value = resident.full_name;
+            residentIdInput.value = String(resident.id);
+            hint.textContent = 'Linked resident · Resident No. ' + resident.resident_number;
+            closeResults();
+        };
+
+        const chooseUnregisteredName = function (name) {
+            searchInput.value = name;
+            residentIdInput.value = '';
+            hint.textContent = 'This appointment will be saved without linking a resident record.';
+            closeResults();
+        };
+
+        const renderResults = function () {
+            const query = searchInput.value.trim().toLocaleLowerCase();
+            results.replaceChildren();
+            activeIndex = -1;
+            if (!query) {
+                closeResults();
+                hint.textContent = 'Select a registered resident, or enter a name if they are not registered.';
+                return;
+            }
+
+            const matches = residents.filter(function (resident) {
+                return (resident.full_name + ' ' + resident.resident_number).toLocaleLowerCase().includes(query);
+            }).slice(0, 8);
+
+            matches.forEach(function (resident) {
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = 'resident-search-option';
+                option.setAttribute('role', 'option');
+                option.setAttribute('aria-selected', 'false');
+                option.id = 'residentSearchOption-' + resident.id;
+                const name = document.createElement('strong');
+                const number = document.createElement('span');
+                const icon = document.createElement('i');
+                icon.className = 'fa-regular fa-user';
+                icon.setAttribute('aria-hidden', 'true');
+                name.textContent = resident.full_name;
+                number.textContent = 'Resident No. ' + resident.resident_number;
+                option.append(icon, name, number);
+                option.addEventListener('click', function () {
+                    chooseResident(resident);
+                });
+                results.append(option);
+            });
+
+            const unregisteredOption = document.createElement('button');
+            unregisteredOption.type = 'button';
+            unregisteredOption.className = 'resident-search-option is-manual';
+            unregisteredOption.setAttribute('role', 'option');
+            unregisteredOption.setAttribute('aria-selected', 'false');
+            unregisteredOption.id = 'residentSearchOption-manual';
+            const manualIcon = document.createElement('i');
+            manualIcon.className = 'fa-solid fa-pen';
+            manualIcon.setAttribute('aria-hidden', 'true');
+            const manualLabel = document.createElement('strong');
+            manualLabel.textContent = 'Use as unregistered resident';
+            const manualName = document.createElement('span');
+            manualName.textContent = searchInput.value.trim();
+            unregisteredOption.append(manualIcon, manualLabel, manualName);
+            unregisteredOption.addEventListener('click', function () {
+                chooseUnregisteredName(searchInput.value.trim());
+            });
+            results.append(unregisteredOption);
+
+            results.hidden = false;
+            searchInput.setAttribute('aria-expanded', 'true');
+            hint.textContent = matches.length
+                ? 'Choose a resident to link this appointment, or use the typed name without a resident record.'
+                : 'No registered residents match. You can use the typed name without linking a resident record.';
+        };
+
+        searchInput.addEventListener('input', function () {
+            residentIdInput.value = '';
+            renderResults();
+        });
+        searchInput.addEventListener('focus', renderResults);
+        searchInput.addEventListener('keydown', function (event) {
+            const options = results.querySelectorAll('.resident-search-option');
+            if (results.hidden || options.length === 0) {
+                return;
+            }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                activeIndex = event.key === 'ArrowDown'
+                    ? (activeIndex + 1) % options.length
+                    : (activeIndex <= 0 ? options.length - 1 : activeIndex - 1);
+                options.forEach(function (option, index) {
+                    option.setAttribute('aria-selected', index === activeIndex ? 'true' : 'false');
+                });
+                searchInput.setAttribute('aria-activedescendant', options[activeIndex].id || '');
+            } else if (event.key === 'Enter' && activeIndex >= 0) {
+                event.preventDefault();
+                options[activeIndex].click();
+            } else if (event.key === 'Escape') {
+                closeResults();
+            }
+        });
+        document.addEventListener('pointerdown', function (event) {
+            if (!autocomplete.contains(event.target)) {
+                closeResults();
+            }
+        });
+
+        if (residentIdInput.value) {
+            const selectedResident = residents.find(function (resident) {
+                return String(resident.id) === residentIdInput.value;
+            });
+            if (selectedResident) {
+                hint.textContent = 'Linked resident · Resident No. ' + selectedResident.resident_number;
+            }
+        }
+    });
 </script>
 <?php endif; ?>
 </body>
