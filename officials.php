@@ -1336,7 +1336,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         <span id="personnelActionNote">You can restore this account later if its term is still valid and its position is available.</span>
     </div>
     <div class="personnel-archive-dialog__actions">
-        <button type="button" class="btn btn-outline-secondary" id="cancelPersonnelAction">Cancel</button>
+        <button type="button" class="btn btn-outline-secondary" id="cancelPersonnelAction" autofocus>Cancel</button>
         <button type="button" class="btn btn-primary" id="confirmPersonnelAction"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive account</button>
     </div>
 </dialog>
@@ -1356,40 +1356,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     const confirmButton = document.getElementById('confirmPersonnelAction');
     let pendingForm = null;
     let activePersonnelSection = '';
-    let pageScrollLock = null;
     document.documentElement.classList.add('personnel-scroll-stable');
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-
-    const lockPageScroll = () => {
-        if (pageScrollLock) return;
-        pageScrollLock = {
-            x: window.scrollX,
-            y: window.scrollY,
-            position: document.body.style.position,
-            top: document.body.style.top,
-            left: document.body.style.left,
-            width: document.body.style.width,
-            overflow: document.body.style.overflow
-        };
-        document.body.style.position = 'fixed';
-        document.body.style.top = -pageScrollLock.y + 'px';
-        document.body.style.left = -pageScrollLock.x + 'px';
-        document.body.style.width = '100%';
-        document.body.style.overflow = 'hidden';
-    };
-
-    const unlockPageScroll = () => {
-        if (!pageScrollLock) return;
-        const savedPosition = pageScrollLock;
-        pageScrollLock = null;
-        document.body.style.position = savedPosition.position;
-        document.body.style.top = savedPosition.top;
-        document.body.style.left = savedPosition.left;
-        document.body.style.width = savedPosition.width;
-        document.body.style.overflow = savedPosition.overflow;
-        window.scrollTo(savedPosition.x, savedPosition.y);
-        requestAnimationFrame(() => window.scrollTo(savedPosition.x, savedPosition.y));
-    };
 
     const residentSearch = document.getElementById('officialResidentSearch');
     const residentId = document.getElementById('officialResidentId');
@@ -1541,9 +1509,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             : 'You can restore this account later if its term is still valid and its personnel slot is available.';
         icon.className = 'fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive');
         confirmButton.innerHTML = '<i class="fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive') + '" aria-hidden="true"></i> ' + (restoring ? 'Restore account' : 'Archive account');
-        lockPageScroll();
         dialog.showModal();
-        (restoring ? cancelButton : archiveReason).focus({preventScroll: true});
+        cancelButton.focus({preventScroll: true});
     });
 
     const sectionForLink = (link) => {
@@ -1664,7 +1631,6 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         pendingForm.submit();
     });
     dialog.addEventListener('close', () => {
-        unlockPageScroll();
         archiveReason.value = '';
         archiveError.hidden = true;
         archiveError.textContent = '';
@@ -1675,9 +1641,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         pendingForm = document.getElementById('archive-personnel-' + dialog.dataset.reopenArchiveId);
         archiveReason.required = false;
         archiveReason.setAttribute('aria-required', 'true');
-        lockPageScroll();
         dialog.showModal();
-        archiveReason.focus({preventScroll: true});
+        cancelButton.focus({preventScroll: true});
     }
 })();
 </script>
