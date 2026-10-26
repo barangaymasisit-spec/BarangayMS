@@ -1260,44 +1260,94 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     const cancelButton = document.getElementById('cancelPersonnelAction');
     const confirmButton = document.getElementById('confirmPersonnelAction');
     let pendingForm = null;
+    let activePersonnelSection = '';
 
-    document.querySelectorAll('[data-personnel-confirm-form]').forEach((form) => {
-        form.addEventListener('submit', (event) => {
-            if (typeof dialog.showModal !== 'function') return;
-            event.preventDefault();
-            const restoring = form.dataset.action === 'restore';
-            const isOfficial = form.dataset.personnelRole === 'staff';
-            pendingForm = form;
-            if (restoring) {
-                archiveReason.removeAttribute('form');
-            } else {
-                archiveReason.setAttribute('form', form.id);
-            }
-            dialog.classList.toggle('is-restoring', restoring);
-            archiveReasonField.hidden = restoring;
-            archiveReason.required = !restoring;
-            archiveReason.value = '';
-            personName.textContent = form.dataset.personName || 'Selected personnel account';
-            title.textContent = restoring
-                ? (isOfficial ? 'Restore this official?' : 'Restore this personnel?')
-                : (isOfficial ? 'Archive this official?' : 'Archive this personnel?');
-            description.textContent = restoring
-                ? (isOfficial
-                    ? 'This account will return to the Active Officials list if its term and position are still valid.'
-                    : 'This account will return to active personnel if its term and available capacity allow it.')
-                : (isOfficial
-                    ? 'This account will move to Archived Officials and its personnel slot will be available again.'
-                    : 'This account will be archived and its personnel slot will be available again.');
-            note.textContent = restoring
-                ? (isOfficial
-                    ? 'The system will check term dates, available capacity and active-position conflicts before restoring.'
-                    : 'The system will check term dates and available personnel capacity before restoring.')
-                : 'You can restore this account later if its term is still valid and its personnel slot is available.';
-            icon.className = 'fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive');
-            confirmButton.innerHTML = '<i class="fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive') + '" aria-hidden="true"></i> ' + (restoring ? 'Restore account' : 'Archive account');
-            dialog.showModal();
-            (restoring ? cancelButton : archiveReason).focus();
-        });
+    document.addEventListener('submit', (event) => {
+        const form = event.target.closest('[data-personnel-confirm-form]');
+        if (!form || typeof dialog.showModal !== 'function') return;
+        event.preventDefault();
+        const restoring = form.dataset.action === 'restore';
+        const isOfficial = form.dataset.personnelRole === 'staff';
+        pendingForm = form;
+        if (restoring) {
+            archiveReason.removeAttribute('form');
+        } else {
+            archiveReason.setAttribute('form', form.id);
+        }
+        dialog.classList.toggle('is-restoring', restoring);
+        archiveReasonField.hidden = restoring;
+        archiveReason.required = !restoring;
+        archiveReason.value = '';
+        personName.textContent = form.dataset.personName || 'Selected personnel account';
+        title.textContent = restoring
+            ? (isOfficial ? 'Restore this official?' : 'Restore this personnel?')
+            : (isOfficial ? 'Archive this official?' : 'Archive this personnel?');
+        description.textContent = restoring
+            ? (isOfficial
+                ? 'This account will return to the Active Officials list if its term and position are still valid.'
+                : 'This account will return to active personnel if its term and available capacity allow it.')
+            : (isOfficial
+                ? 'This account will move to Archived Officials and its personnel slot will be available again.'
+                : 'This account will be archived and its personnel slot will be available again.');
+        note.textContent = restoring
+            ? (isOfficial
+                ? 'The system will check term dates, available capacity and active-position conflicts before restoring.'
+                : 'The system will check term dates and available personnel capacity before restoring.')
+            : 'You can restore this account later if its term is still valid and its personnel slot is available.';
+        icon.className = 'fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive');
+        confirmButton.innerHTML = '<i class="fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive') + '" aria-hidden="true"></i> ' + (restoring ? 'Restore account' : 'Archive account');
+        dialog.showModal();
+        (restoring ? cancelButton : archiveReason).focus();
+    });
+
+    const sectionForLink = (link) => {
+        if (link.closest('.official-status-tabs')) return 'officials-list';
+        const paginationId = link.closest('.pagination-bar')?.id;
+        return {
+            'officials-pagination': 'officials-list',
+            'health-workers-pagination': 'liveHealthWorkers',
+            'security-forces-pagination': 'liveSecurityForces'
+        }[paginationId] || '';
+    };
+
+    const updatePersonnelSection = async (url, sectionId, addHistoryEntry) => {
+        const currentSection = document.getElementById(sectionId);
+        if (!currentSection) return;
+        currentSection.setAttribute('aria-busy', 'true');
+        try {
+            const response = await fetch(url, {
+                headers: {'X-Requested-With': 'XMLHttpRequest'},
+                credentials: 'same-origin'
+            });
+            if (!response.ok || response.redirected) throw new Error('Personnel list request failed.');
+            const html = await response.text();
+            const nextDocument = new DOMParser().parseFromString(html, 'text/html');
+            const nextSection = nextDocument.getElementById(sectionId);
+            if (!nextSection) throw new Error('Updated personnel list was not found.');
+            currentSection.replaceWith(nextSection);
+            activePersonnelSection = sectionId;
+            if (addHistoryEntry) history.pushState({personnelSection: sectionId}, '', url);
+        } catch (error) {
+            console.error('Could not update personnel list without reloading:', error);
+            if (addHistoryEntry) window.location.assign(url);
+        } finally {
+            document.getElementById(sectionId)?.removeAttribute('aria-busy');
+        }
+    };
+
+    document.addEventListener('click', (event) => {
+        const link = event.target.closest('.pagination-bar a, .official-status-tabs a');
+        if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        const sectionId = sectionForLink(link);
+        const url = new URL(link.href, window.location.href);
+        if (!sectionId || url.origin !== window.location.origin || url.pathname !== window.location.pathname) return;
+        event.preventDefault();
+        updatePersonnelSection(url.href, sectionId, true);
+    });
+
+    window.addEventListener('popstate', (event) => {
+        const sectionId = event.state?.personnelSection || activePersonnelSection;
+        if (sectionId) updatePersonnelSection(window.location.href, sectionId, false);
     });
 
     cancelButton.addEventListener('click', () => dialog.close());
