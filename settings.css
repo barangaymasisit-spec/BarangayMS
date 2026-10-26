@@ -883,6 +883,10 @@ hr{
     scroll-margin-top:110px;
 }
 
+html.personnel-scroll-stable{
+    overflow-anchor:none;
+}
+
 .official-archive-details{
     display:block;
     max-width:230px;

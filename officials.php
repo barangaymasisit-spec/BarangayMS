@@ -1261,6 +1261,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     const confirmButton = document.getElementById('confirmPersonnelAction');
     let pendingForm = null;
     let activePersonnelSection = '';
+    document.documentElement.classList.add('personnel-scroll-stable');
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
     document.addEventListener('submit', (event) => {
         const form = event.target.closest('[data-personnel-confirm-form]');
@@ -1310,9 +1312,10 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         }[paginationId] || '';
     };
 
-    const updatePersonnelSection = async (url, sectionId, addHistoryEntry) => {
+    const updatePersonnelSection = async (url, sectionId, addHistoryEntry, savedPosition = null) => {
         const currentSection = document.getElementById(sectionId);
         if (!currentSection) return;
+        const viewportPosition = savedPosition || {x: window.scrollX, y: window.scrollY};
         currentSection.setAttribute('aria-busy', 'true');
         try {
             const response = await fetch(url, {
@@ -1326,7 +1329,21 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             if (!nextSection) throw new Error('Updated personnel list was not found.');
             currentSection.replaceWith(nextSection);
             activePersonnelSection = sectionId;
-            if (addHistoryEntry) history.pushState({personnelSection: sectionId}, '', url);
+            window.scrollTo(viewportPosition.x, viewportPosition.y);
+            requestAnimationFrame(() => window.scrollTo(viewportPosition.x, viewportPosition.y));
+            if (addHistoryEntry) {
+                history.replaceState({
+                    ...history.state,
+                    personnelSection: sectionId,
+                    scrollX: viewportPosition.x,
+                    scrollY: viewportPosition.y
+                }, '', window.location.href);
+                history.pushState({
+                    personnelSection: sectionId,
+                    scrollX: viewportPosition.x,
+                    scrollY: viewportPosition.y
+                }, '', url);
+            }
         } catch (error) {
             console.error('Could not update personnel list without reloading:', error);
             if (addHistoryEntry) window.location.assign(url);
@@ -1347,7 +1364,10 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
     window.addEventListener('popstate', (event) => {
         const sectionId = event.state?.personnelSection || activePersonnelSection;
-        if (sectionId) updatePersonnelSection(window.location.href, sectionId, false);
+        const savedPosition = Number.isFinite(event.state?.scrollX) && Number.isFinite(event.state?.scrollY)
+            ? {x: event.state.scrollX, y: event.state.scrollY}
+            : null;
+        if (sectionId) updatePersonnelSection(window.location.href, sectionId, false, savedPosition);
     });
 
     cancelButton.addEventListener('click', () => dialog.close());
