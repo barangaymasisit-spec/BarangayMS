@@ -84,3 +84,110 @@ body{background:#f4f7fc url('bg.png') center top / cover fixed no-repeat;color:#
 .notice-error{background:#FDECEA;border-color:#F5C6C2;color:#C62828}
 @media(max-width:1400px){.profile-section > div:last-child{display:none}}
 @media(max-width:1200px){.live-clock{display:none}}
+
+.appointment-statistics .col-lg-2-4{flex:0 0 20%;max-width:20%}
+.stat-card-cancelled{border-top-color:#b93832}
+.appointment-tabs{display:flex;gap:8px;margin:0 0 16px;padding:6px;border:1px solid #e2eaf4;border-radius:14px;background:#f5f8fd}
+.appointment-tab{display:flex;min-height:44px;flex:1;align-items:center;justify-content:center;gap:10px;padding:8px 12px;border:1px solid transparent;border-radius:10px;color:#52657b;font-size:13px;font-weight:600;text-decoration:none;transition:background .18s ease,color .18s ease,box-shadow .18s ease}
+.appointment-tab span{display:flex;align-items:center;gap:8px}
+.appointment-tab strong{display:grid;min-width:23px;height:23px;place-items:center;border-radius:50%;background:#e5edf8;color:#315783;font-size:11px}
+.appointment-tab:hover,.appointment-tab.is-active{border-color:#dce7f5;background:#fff;color:#0B4A9E;box-shadow:0 3px 12px rgba(25,62,108,.08)}
+.appointment-tab.is-active strong{background:#0B4A9E;color:#fff}
+.appointment-view-switch{display:flex;width:max-content;gap:3px;margin:0 0 16px;padding:4px;border:1px solid #e2eaf4;border-radius:10px;background:#f4f7fb}
+.appointment-view-switch a{display:flex;align-items:center;gap:7px;padding:8px 12px;border-radius:7px;color:#52657b;font-size:12px;font-weight:600;text-decoration:none}
+.appointment-view-switch a.is-active,.appointment-view-switch a:hover{background:#fff;color:#0B4A9E;box-shadow:0 2px 7px rgba(25,62,108,.08)}
+.filters{flex-wrap:wrap;align-items:center}
+.filters input[type=search]{min-width:200px;flex:2 1 220px}
+.filters select,.filters input[type=date]{min-width:135px;flex:1 1 140px}
+.appointment-table-wrap[hidden],.appointment-calendar[hidden]{display:none}
+.appointment-table{min-width:900px}
+.appointment-table thead th{white-space:nowrap}
+.appointment-status-badge,.appointment-overdue-badge{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
+.appointment-status-badge.pending{background:#fff2d6;color:#805b00}
+.appointment-status-badge.approved{background:#e1f1ff;color:#155b91}
+.appointment-status-badge.completed{background:#e1f4e7;color:#236b3c}
+.appointment-status-badge.cancelled,.appointment-status-badge.rejected{background:#ffe6e3;color:#a32d27}
+.appointment-status-badge.no-show{background:#f0e6f8;color:#69418a}
+.appointment-status-badge.unknown{background:#edf0f4;color:#526174}
+.appointment-overdue-badge{margin:3px 0 0;background:#fff0e0;color:#a64b05}
+.appointment-actions{display:flex;min-width:190px;align-items:center;flex-wrap:wrap;gap:6px}
+.appointment-action{display:inline-flex;min-height:34px;align-items:center;justify-content:center;gap:6px;padding:6px 9px;border:1px solid #dce5ef;border-radius:9px;background:#fff;color:#40536a;font:inherit;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap;cursor:pointer;transition:background .16s ease,border-color .16s ease,color .16s ease}
+.appointment-action:hover{border-color:#b8cce5;background:#f1f6fc;color:#0B4A9E}
+.appointment-action.is-archive{border-color:#f1d2cf;color:#b42318}
+.appointment-action.is-archive:hover{border-color:#e5aaa5;background:#fff0ef;color:#a32d27}
+.appointment-action.is-restore{border-color:#cce8d5;color:#236b3c}
+.appointment-action.is-restore:hover{border-color:#9ed0ad;background:#effaf2;color:#1d5c33}
+.schedule-box{display:grid;width:100%;gap:5px;border:0;text-align:left;font:inherit;cursor:pointer;transition:transform .16s ease,box-shadow .16s ease}
+.schedule-box:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(20,55,104,.12)}
+.schedule-time{color:#0f4da8;font-size:14px;font-weight:700}
+.schedule-resident{color:#26364d;font-size:13px;font-weight:600}
+.schedule-box small{color:#68788d;font-size:11px}
+.schedule-empty{padding:14px;border:1px dashed #cbd7e5;border-radius:12px;background:#f8fbff;color:#64748b;font-size:13px}
+.next-appointment-card{display:grid;gap:8px;margin:12px 0;padding:16px;border:1px solid #dbe8f7;border-radius:13px;background:#f3f8ff}
+.next-appointment-card>span{color:#0f4da8;font-size:9px;font-weight:700;letter-spacing:.12em}
+.next-appointment-card>strong{color:#263c59;font-size:13px}
+.next-appointment-card p{margin:0;color:#68788d;font-size:12px}
+.schedule-full-link{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;padding:10px;border:1px solid #dce7f5;border-radius:10px;color:#0f4da8;font-size:12px;font-weight:600;text-decoration:none}
+.schedule-full-link:hover{background:#f3f8ff}
+.overdue-panel{display:grid;grid-template-columns:1fr auto;gap:5px 10px;margin-top:15px;padding:14px;border:1px solid #f2d4bc;border-radius:12px;background:#fff7ed;color:#9a4306;text-decoration:none}
+.overdue-panel>span{font-size:12px;font-weight:700}
+.overdue-panel>strong{font-size:20px;line-height:1}
+.overdue-panel>small{grid-column:1/-1;color:#8a5a37;font-size:10px;line-height:1.5}
+.appointment-calendar{margin-top:16px;padding:16px;border:1px solid #e1e8f0;border-radius:14px;background:#fff}
+.calendar-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.calendar-toolbar h4{margin:0;color:#173b69;font-size:17px;font-weight:700}
+.calendar-toolbar button{display:grid;width:34px;height:34px;place-items:center;border:1px solid #dce5ef;border-radius:9px;background:#fff;color:#425b78;cursor:pointer}
+.calendar-toolbar button:hover{background:#eef5ff;color:#0f4da8}
+.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid #e8edf3;border-left:1px solid #e8edf3}
+.calendar-weekday{padding:8px 4px;background:#f5f8fc;color:#718198;font-size:10px;text-align:center}
+.calendar-day{display:flex;min-height:92px;flex-direction:column;gap:4px;padding:6px;border-top:1px solid #e8edf3;border-right:1px solid #e8edf3;border-bottom:1px solid #e8edf3;border-left:1px solid #e8edf3}
+.calendar-day.is-empty{background:#f8fafc}
+.calendar-date{color:#52657b;font-size:11px;font-weight:700}
+.calendar-event{display:block;width:100%;overflow:hidden;padding:4px 5px;border:0;border-radius:5px;background:#fff3d8;color:#805b00;font-size:9px;text-align:left;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.calendar-event.is-approved{background:#e5f2ff;color:#145b91}
+.appointment-details-dialog,.appointment-confirm-dialog{position:fixed;inset:0;width:min(720px,calc(100% - 32px));max-width:none;max-height:min(88vh,850px);margin:auto;padding:0;overflow:hidden;border:1px solid #dce5ef;border-radius:18px;background:#fff;color:#27384d;box-shadow:0 28px 80px rgba(16,32,58,.28)}
+.appointment-details-dialog[open]{display:flex;flex-direction:column;animation:appointment-dialog-enter .18s ease-out}
+.appointment-details-dialog::backdrop,.appointment-confirm-dialog::backdrop{background:rgba(16,32,58,.55);backdrop-filter:blur(3px)}
+.appointment-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 24px 16px;border-bottom:1px solid #e8eef5}
+.appointment-dialog-header>div>span,.appointment-confirm-dialog>span{color:#7188a5;font-size:9px;font-weight:700;letter-spacing:.14em}
+.appointment-dialog-header h2,.appointment-confirm-dialog h2{margin:5px 0 0;color:#173b69;font-size:21px;font-weight:700}
+.appointment-dialog-close{display:grid;width:36px;height:36px;place-items:center;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#56677c;cursor:pointer}
+#appointmentDetailsMessage{margin:0;padding:8px 24px 0;color:#66788f;font-size:12px}
+.appointment-dialog-body{padding:14px 24px 20px;overflow:auto}
+.appointment-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px}
+.appointment-detail-grid>div{display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #edf1f6}
+.appointment-detail-grid>div[hidden]{display:none}
+.appointment-detail-grid .wide{grid-column:1/-1}
+.appointment-detail-grid span{color:#73839a;font-size:11px}
+.appointment-detail-grid strong{color:#2b3e55;font-size:13px;font-weight:600;overflow-wrap:anywhere;white-space:pre-wrap}
+.appointment-status-form{margin-top:16px;padding:15px;border:1px solid #e4ecf5;border-radius:12px;background:#f8fbff}
+.appointment-status-form[hidden]{display:none}
+.appointment-status-form label{display:block;margin-bottom:8px;color:#52657b;font-size:12px;font-weight:600}
+.appointment-status-form>div{display:flex;gap:9px}
+.appointment-status-form select{min-width:0;flex:1;padding:9px 11px;border:1px solid #d5dfeb;border-radius:8px;background:#fff;color:#2b3e55;font:inherit;font-size:12px}
+.appointment-status-form button{display:inline-flex;align-items:center;gap:7px;padding:9px 13px;border:0;border-radius:8px;background:#0f4da8;color:#fff;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.appointment-timeline{margin-top:18px;padding:16px 18px;border:1px solid #e4ecf5;border-radius:13px;background:#f8fbff}
+.appointment-timeline h3{margin:0 0 12px;color:#173b69;font-size:15px;font-weight:700}
+.appointment-timeline ol{display:grid;margin:0;padding:0;list-style:none}
+.appointment-timeline li{position:relative;display:grid;gap:3px;min-height:45px;padding:0 0 13px 22px}
+.appointment-timeline li::before{position:absolute;top:5px;left:1px;width:9px;height:9px;border:2px solid #fff;border-radius:50%;background:#0B4A9E;box-shadow:0 0 0 1px #8eafd8;content:""}
+.appointment-timeline li:not(:last-child)::after{position:absolute;top:16px;bottom:0;left:5px;width:1px;background:#cfdded;content:""}
+.appointment-timeline li strong{color:#31465f;font-size:12px}
+.appointment-timeline li time,.appointment-timeline li span{color:#78899f;font-size:10px}
+.appointment-dialog-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding:13px 24px;border-top:1px solid #e8eef5;background:#fbfcfe}
+.appointment-dialog-actions [hidden]{display:none}
+.appointment-confirm-dialog{width:min(420px,calc(100% - 32px));padding:28px;overflow:visible;text-align:center}
+.appointment-confirm-dialog[open]{animation:appointment-dialog-enter .18s ease-out}
+.appointment-confirm-icon{display:grid;width:54px;height:54px;margin:0 auto 14px;place-items:center;border:1px solid #f3d5d1;border-radius:17px;background:#fff2f0;color:#ba3931;font-size:21px}
+.appointment-confirm-icon:not(.is-archive){border-color:#d6e6f8;background:#eef6ff;color:#0B4A9E}
+.appointment-confirm-dialog p{margin:9px auto 0;max-width:330px;color:#687b93;font-size:13px;line-height:1.6}
+.appointment-confirm-actions{display:flex;justify-content:center;gap:10px;margin-top:24px}
+.appointment-confirm-actions button{display:inline-flex;min-width:112px;min-height:42px;align-items:center;justify-content:center;gap:8px;padding:9px 14px;border:1px solid #d6e0ed;border-radius:10px;background:#fff;color:#52657b;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.appointment-confirm-actions button:last-child{border-color:#bf3932;background:#bf3932;color:#fff}
+.appointment-confirm-actions button:last-child:not(.is-archive){border-color:#0B4A9E;background:#0B4A9E}
+.appointment-confirm-actions button:disabled{cursor:wait;opacity:.7}
+@keyframes appointment-dialog-enter{from{opacity:0;transform:translateY(7px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(max-width:1200px){.appointment-statistics .col-lg-2-4{flex:0 0 33.333%;max-width:33.333%}}
+@media(max-width:768px){.appointment-statistics .col-lg-2-4{flex:0 0 50%;max-width:50%}.appointment-tab{flex-direction:column;gap:4px;padding:8px 5px;font-size:11px}.appointment-view-switch{width:100%}.appointment-view-switch a{flex:1;justify-content:center}.calendar-day{min-height:64px;padding:3px}.calendar-event{font-size:8px}.appointment-detail-grid{grid-template-columns:1fr}.appointment-detail-grid .wide{grid-column:1}.appointment-dialog-header,.appointment-dialog-body,.appointment-dialog-actions{padding-right:18px;padding-left:18px}.appointment-status-form>div{align-items:stretch;flex-direction:column}.appointment-confirm-dialog{padding:24px 20px}.appointment-confirm-actions button{min-width:0;flex:1}}
+@media(max-width:480px){.appointment-statistics .col-lg-2-4{flex:0 0 100%;max-width:100%}.calendar-weekday{font-size:8px}.calendar-event{padding:3px 2px;font-size:7px}}
+@media(prefers-reduced-motion:reduce){.appointment-details-dialog[open],.appointment-confirm-dialog[open]{animation:none}.appointment-tab,.appointment-action,.schedule-box{transition:none}}

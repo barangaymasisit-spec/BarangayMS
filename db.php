@@ -1202,6 +1202,38 @@ function ensureAppointmentRequesterColumn(mysqli $conn): void {
     }
 }
 
+function ensureAppointmentManagementColumns(mysqli $conn): void {
+    if (!databaseTableExists($conn, 'appointments')) {
+        return;
+    }
+
+    $columns = [];
+    foreach ($conn->query("SHOW COLUMNS FROM appointments WHERE Field IN ('assigned_to_user_id', 'duration_minutes', 'is_archived', 'archived_at', 'archived_by_user_id')")->fetch_all(MYSQLI_ASSOC) as $column) {
+        $columns[$column['Field']] = true;
+    }
+    if (!isset($columns['assigned_to_user_id'])) {
+        $conn->query('ALTER TABLE appointments ADD COLUMN assigned_to_user_id INT UNSIGNED NULL AFTER requested_by_user_id');
+    }
+    if (!isset($columns['duration_minutes'])) {
+        $conn->query('ALTER TABLE appointments ADD COLUMN duration_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 30 AFTER appointment_time');
+    }
+    if (!isset($columns['is_archived'])) {
+        $conn->query('ALTER TABLE appointments ADD COLUMN is_archived TINYINT(1) NOT NULL DEFAULT 0 AFTER notes');
+    }
+    if (!isset($columns['archived_at'])) {
+        $conn->query('ALTER TABLE appointments ADD COLUMN archived_at DATETIME DEFAULT NULL AFTER is_archived');
+    }
+    if (!isset($columns['archived_by_user_id'])) {
+        $conn->query('ALTER TABLE appointments ADD COLUMN archived_by_user_id INT UNSIGNED DEFAULT NULL AFTER archived_at');
+    }
+    if ($conn->query("SHOW INDEX FROM appointments WHERE Key_name = 'idx_appointments_archive_status_date'")->num_rows === 0) {
+        $conn->query('ALTER TABLE appointments ADD KEY idx_appointments_archive_status_date (is_archived, status, appointment_date)');
+    }
+    if ($conn->query("SHOW INDEX FROM appointments WHERE Key_name = 'idx_appointments_assigned_schedule'")->num_rows === 0) {
+        $conn->query('ALTER TABLE appointments ADD KEY idx_appointments_assigned_schedule (assigned_to_user_id, appointment_date, appointment_time)');
+    }
+}
+
 function runDatabaseMigration(callable $migration, string $name): void {
     set_error_handler(static function (int $level, string $message, string $file, int $line): never {
         throw new ErrorException($message, 0, $level, $file, $line);
@@ -1239,6 +1271,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     runDatabaseMigration(static fn () => ensureComplaintAudienceColumns($GLOBALS['conn']), 'complaint audience columns');
     runDatabaseMigration(static fn () => ensureComplaintManagementColumns($GLOBALS['conn']), 'complaint management columns');
     runDatabaseMigration(static fn () => ensureAppointmentRequesterColumn($GLOBALS['conn']), 'appointment requester column');
+    runDatabaseMigration(static fn () => ensureAppointmentManagementColumns($GLOBALS['conn']), 'appointment management columns');
     runDatabaseMigration(static fn () => ensureCertificateRequesterColumns($GLOBALS['conn']), 'certificate requester columns');
     runDatabaseMigration(static fn () => ensureCertificateManagementColumns($GLOBALS['conn']), 'certificate archive columns');
     runDatabaseMigration(static fn () => migrateRegisteredVoterCategory($GLOBALS['conn']), 'registered voter migration');

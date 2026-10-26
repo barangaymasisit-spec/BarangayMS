@@ -252,15 +252,22 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `resident_id` INT UNSIGNED DEFAULT NULL,
   `requested_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `assigned_to_user_id` INT UNSIGNED DEFAULT NULL,
   `resident_name` VARCHAR(200) DEFAULT NULL,
   `purpose` VARCHAR(255) DEFAULT NULL,
   `appointment_date` DATE DEFAULT NULL,
   `appointment_time` TIME DEFAULT NULL,
+  `duration_minutes` SMALLINT UNSIGNED NOT NULL DEFAULT 30,
   `status` VARCHAR(50) DEFAULT NULL,
   `notes` TEXT DEFAULT NULL,
+  `is_archived` TINYINT(1) NOT NULL DEFAULT 0,
+  `archived_at` DATETIME DEFAULT NULL,
+  `archived_by_user_id` INT UNSIGNED DEFAULT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_appointment_resident_id` (`resident_id`),
-  KEY `idx_appointments_requested_by_user` (`requested_by_user_id`)
+  KEY `idx_appointments_requested_by_user` (`requested_by_user_id`),
+  KEY `idx_appointments_archive_status_date` (`is_archived`, `status`, `appointment_date`),
+  KEY `idx_appointments_assigned_schedule` (`assigned_to_user_id`, `appointment_date`, `appointment_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

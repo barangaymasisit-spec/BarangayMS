@@ -13,7 +13,7 @@ if ($isResident && ($id > 0 || !$currentResident)) {
 }
 
 if ($id > 0) {
-    $stmt = $conn->prepare('SELECT * FROM appointments WHERE id = ?');
+    $stmt = $conn->prepare("SELECT a.*, CASE WHEN u.id IS NULL THEN 'Not assigned' ELSE CONCAT(u.first_name, ' ', u.last_name) END AS assigned_personnel_name, u.position AS assigned_personnel_position FROM appointments a LEFT JOIN users u ON u.id = a.assigned_to_user_id WHERE a.id = ?");
     $stmt->bind_param('i', $id);
     $stmt->execute();
     $appointment = $stmt->get_result()->fetch_assoc();
@@ -29,14 +29,24 @@ if ($appointment && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?
     header('Location: appointments.php?msg=delete_disabled');
     exit;
 }
+if ($appointment && !empty($appointment['is_archived']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Location: appointments.php?view=archived&msg=archived_read_only', true, 303);
+    exit;
+}
 
-$isEdit = $appointment && isset($_GET['edit']);
+$isEdit = $appointment && isset($_GET['edit']) && empty($appointment['is_archived']);
 $isNew = !$appointment;
 
 $residents = $conn->query('SELECT id, resident_number, first_name, middle_name, last_name, suffix FROM residents ORDER BY first_name ASC, last_name ASC');
 $residentOptions = $residents->fetch_all(MYSQLI_ASSOC);
 
-$statusOptions = ['Pending', 'Approved', 'Cancelled'];
+$statusOptions = ['Pending', 'Approved', 'Completed', 'Cancelled', 'Rejected', 'No Show'];
+$currentAssigneeId = (int)($appointment['assigned_to_user_id'] ?? 0);
+$personnelStmt = $conn->prepare("SELECT id, first_name, last_name, position, status FROM users WHERE role IN ('staff', 'health_worker', 'security_force') AND (status = 'Active' OR id = ?) ORDER BY status = 'Active' DESC, first_name, last_name");
+$personnelStmt->bind_param('i', $currentAssigneeId);
+$personnelStmt->execute();
+$personnelOptions = $personnelStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$personnelStmt->close();
 
 $values = [
     'resident_id'      => $appointment['resident_id'] ?? '',
@@ -44,6 +54,8 @@ $values = [
     'purpose'          => $appointment['purpose'] ?? '',
     'appointment_date' => $appointment['appointment_date'] ?? date('Y-m-d'),
     'appointment_time' => $appointment ? substr((string)$appointment['appointment_time'], 0, 5) : '09:00',
+    'duration_minutes' => $appointment['duration_minutes'] ?? 30,
+    'assigned_to_user_id' => $appointment['assigned_to_user_id'] ?? '',
     'status'           => $appointment['status'] ?? 'Pending',
     'notes'            => $appointment['notes'] ?? '',
     'request_for'      => 'self',
@@ -65,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if ($isResident) {
         $values['status'] = 'Pending';
+        $values['assigned_to_user_id'] = '';
         $values['request_for'] = trim($_POST['request_for'] ?? 'self');
         $values['other_resident_number'] = trim($_POST['other_resident_number'] ?? '');
         $values['other_first_name'] = trim($_POST['other_first_name'] ?? '');
@@ -106,6 +119,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     $residentId = (int)$values['resident_id'];
+    $assignedToId = 0;
+    if (!$isResident && $values['assigned_to_user_id'] !== '') {
+        $validatedAssigneeId = filter_var($values['assigned_to_user_id'], FILTER_VALIDATE_INT);
+        if ($validatedAssigneeId === false || $validatedAssigneeId <= 0) {
+            $error = 'Choose a valid personnel member.';
+        } else {
+            $assignedToId = $validatedAssigneeId;
+        }
+    }
+    $durationMinutes = filter_var($values['duration_minutes'], FILTER_VALIDATE_INT);
+    if ($durationMinutes === false || $durationMinutes < 15 || $durationMinutes > 240) {
+        $durationMinutes = 30;
+        $error = 'Choose an appointment duration between 15 minutes and 4 hours.';
+    }
 
     if ($residentId > 0) {
         $stmt = $conn->prepare('SELECT first_name, last_name FROM residents WHERE id = ?');
@@ -118,6 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     $residentIdOrNull = $residentId > 0 ? $residentId : null;
+    $parsedAppointmentDate = DateTimeImmutable::createFromFormat('!Y-m-d', $values['appointment_date']);
 
     if ($error !== '') {
         // Keep the form open with the validation message.
@@ -125,22 +153,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please choose a resident or type the name.';
     } elseif ($values['purpose'] === '') {
         $error = 'Purpose of the appointment is required.';
-    } elseif ($values['appointment_date'] === '') {
-        $error = 'Appointment date is required.';
-    } elseif ($values['appointment_time'] === '') {
-        $error = 'Appointment time is required.';
+    } elseif (!$parsedAppointmentDate || $parsedAppointmentDate->format('Y-m-d') !== $values['appointment_date']) {
+        $error = 'Enter a valid appointment date.';
+    } elseif (!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $values['appointment_time'])) {
+        $error = 'Enter a valid appointment time.';
     } elseif (!in_array($values['status'], $statusOptions, true)) {
         $error = 'Invalid appointment status.';
     } else {
-        if ($appointment) {
-            $stmt = $conn->prepare('UPDATE appointments SET resident_id = ?, resident_name = ?, purpose = ?, appointment_date = ?, appointment_time = ?, status = ?, notes = ? WHERE id = ?');
+        $assignedToIdOrNull = $assignedToId > 0 ? $assignedToId : null;
+        $scheduleTransactionStarted = false;
+        if ($assignedToId > 0) {
+            if (in_array($values['status'], ['Pending', 'Approved'], true)) {
+                $conn->begin_transaction();
+                $scheduleTransactionStarted = true;
+            }
+            $assignmentSql = "SELECT id FROM users WHERE id = ? AND role IN ('staff', 'health_worker', 'security_force') AND (status = 'Active' OR id = ?)";
+            if ($scheduleTransactionStarted) {
+                $assignmentSql .= ' FOR UPDATE';
+            }
+            $assignmentStmt = $conn->prepare($assignmentSql);
+            $assignmentStmt->bind_param('ii', $assignedToId, $currentAssigneeId);
+            $assignmentStmt->execute();
+            $validAssignee = (bool)$assignmentStmt->get_result()->fetch_assoc();
+            $assignmentStmt->close();
+            if (!$validAssignee) {
+                $error = 'Choose an active barangay personnel member.';
+            }
+        }
+
+        if ($error === '' && $assignedToId > 0 && in_array($values['status'], ['Pending', 'Approved'], true)) {
+            $conflictStmt = $conn->prepare("SELECT id, appointment_time, duration_minutes FROM appointments WHERE assigned_to_user_id = ? AND appointment_date = ? AND is_archived = 0 AND status IN ('Pending', 'Approved') AND id <> ?");
+            $conflictId = $appointment ? $id : 0;
+            $conflictStmt->bind_param('isi', $assignedToId, $values['appointment_date'], $conflictId);
+            $conflictStmt->execute();
+            $conflicts = $conflictStmt->get_result();
+            $newStart = strtotime($values['appointment_date'] . ' ' . $values['appointment_time']);
+            $newEnd = $newStart + $durationMinutes * 60;
+            while ($busy = $conflicts->fetch_assoc()) {
+                $busyStart = strtotime($values['appointment_date'] . ' ' . $busy['appointment_time']);
+                $busyEnd = $busyStart + max(15, (int)$busy['duration_minutes']) * 60;
+                if ($newStart < $busyEnd && $newEnd > $busyStart) {
+                    $error = 'Scheduling conflict: this personnel member already has an appointment during that time. Choose another time or personnel member.';
+                    break;
+                }
+            }
+            $conflictStmt->close();
+        }
+
+        if ($error !== '') {
+            if ($scheduleTransactionStarted) {
+                $conn->rollback();
+            }
+        } elseif ($appointment) {
+            $stmt = $conn->prepare('UPDATE appointments SET resident_id = ?, resident_name = ?, purpose = ?, appointment_date = ?, appointment_time = ?, duration_minutes = ?, assigned_to_user_id = ?, status = ?, notes = ? WHERE id = ?');
             $stmt->bind_param(
-                'issssssi',
+                'issssiissi',
                 $residentIdOrNull,
                 $values['resident_name'],
                 $values['purpose'],
                 $values['appointment_date'],
                 $values['appointment_time'],
+                $durationMinutes,
+                $assignedToIdOrNull,
                 $values['status'],
                 $values['notes'],
                 $id
@@ -148,32 +222,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute();
             $stmt->close();
             $previousStatus = (string)($appointment['status'] ?? '');
-            $activityDetails = $previousStatus !== $values['status']
-                ? 'Appointment status changed from ' . $previousStatus . ' to ' . $values['status'] . '.'
-                : 'Updated appointment record.';
-            logActivity($conn, 'updated', 'appointments', $activityDetails, $id);
+            $oldSchedule = (string)$appointment['appointment_date'] . ' ' . substr((string)$appointment['appointment_time'], 0, 5);
+            $newSchedule = $values['appointment_date'] . ' ' . $values['appointment_time'];
+            if ($previousStatus !== $values['status']) {
+                logActivity($conn, 'updated', 'appointments', 'Appointment status changed from ' . $previousStatus . ' to ' . $values['status'] . '.', $id);
+            }
+            if ($oldSchedule !== $newSchedule || (int)($appointment['duration_minutes'] ?? 30) !== $durationMinutes) {
+                logActivity($conn, 'rescheduled', 'appointments', 'Appointment rescheduled to ' . $newSchedule . '.', $id);
+            }
+            if ((int)($appointment['assigned_to_user_id'] ?? 0) !== $assignedToId) {
+                $assignedName = 'No personnel';
+                foreach ($personnelOptions as $personnel) {
+                    if ((int)$personnel['id'] === $assignedToId) {
+                        $assignedName = trim($personnel['first_name'] . ' ' . $personnel['last_name']);
+                        break;
+                    }
+                }
+                logActivity($conn, 'assigned', 'appointments', 'Appointment assigned to ' . $assignedName . '.', $id);
+            }
+            if ($previousStatus === $values['status'] && $oldSchedule === $newSchedule && (int)($appointment['assigned_to_user_id'] ?? 0) === $assignedToId && (int)($appointment['duration_minutes'] ?? 30) === $durationMinutes) {
+                logActivity($conn, 'updated', 'appointments', 'Updated appointment record.', $id);
+            }
+            if ($scheduleTransactionStarted) {
+                $conn->commit();
+            }
             header('Location: appointments.php?msg=updated');
             exit;
+        } else {
+            $requestedByUserId = (int)($_SESSION['user_id'] ?? 0);
+            $stmt = $conn->prepare('INSERT INTO appointments (resident_id, requested_by_user_id, assigned_to_user_id, resident_name, purpose, appointment_date, appointment_time, duration_minutes, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            $stmt->bind_param(
+                'iiissssiss',
+                $residentIdOrNull,
+                $requestedByUserId,
+                $assignedToIdOrNull,
+                $values['resident_name'],
+                $values['purpose'],
+                $values['appointment_date'],
+                $values['appointment_time'],
+                $durationMinutes,
+                $values['status'],
+                $values['notes']
+            );
+            $stmt->execute();
+            $stmt->close();
+            logActivity($conn, 'created', 'appointments', 'Created appointment request with status ' . $values['status'] . '.', $conn->insert_id);
+            if ($assignedToId > 0) {
+                foreach ($personnelOptions as $personnel) {
+                    if ((int)$personnel['id'] === $assignedToId) {
+                        logActivity($conn, 'assigned', 'appointments', 'Appointment assigned to ' . trim($personnel['first_name'] . ' ' . $personnel['last_name']) . '.', $conn->insert_id);
+                        break;
+                    }
+                }
+            }
+            if ($scheduleTransactionStarted) {
+                $conn->commit();
+            }
+            header('Location: ' . ($isResident ? 'resident_dashboard.php?msg=appointment_created' : 'appointments.php?msg=created'));
+            exit;
         }
-
-        $requestedByUserId = (int)($_SESSION['user_id'] ?? 0);
-        $stmt = $conn->prepare('INSERT INTO appointments (resident_id, requested_by_user_id, resident_name, purpose, appointment_date, appointment_time, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-        $stmt->bind_param(
-            'iissssss',
-            $residentIdOrNull,
-            $requestedByUserId,
-            $values['resident_name'],
-            $values['purpose'],
-            $values['appointment_date'],
-            $values['appointment_time'],
-            $values['status'],
-            $values['notes']
-        );
-        $stmt->execute();
-        $stmt->close();
-        logActivity($conn, 'created', 'appointments', 'Created appointment request with status ' . $values['status'] . '.', $conn->insert_id);
-        header('Location: ' . ($isResident ? 'resident_dashboard.php?msg=appointment_created' : 'appointments.php?msg=created'));
-        exit;
     }
 }
 
@@ -301,6 +408,17 @@ foreach ($residentOptions as $resident) {
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="assigned_to_user_id">Assigned Personnel</label>
+                            <select class="form-select" id="assigned_to_user_id" name="assigned_to_user_id">
+                                <option value="">Unassigned</option>
+                                <?php foreach ($personnelOptions as $personnel): ?>
+                                    <option value="<?php echo (int)$personnel['id']; ?>"<?php echo (int)$values['assigned_to_user_id'] === (int)$personnel['id'] ? ' selected' : ''; ?>>
+                                        <?php echo h(trim($personnel['first_name'] . ' ' . $personnel['last_name']) . ($personnel['position'] ? ' · ' . $personnel['position'] : '') . ($personnel['status'] !== 'Active' ? ' · Archived personnel (historical assignment)' : '')); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                         <?php endif; ?>
 
                         <div class="col-md-6">
@@ -312,6 +430,20 @@ foreach ($residentOptions as $resident) {
                             <label class="form-label" for="appointment_time">Time *</label>
                             <input type="time" class="form-control" id="appointment_time" name="appointment_time" value="<?php echo h($values['appointment_time']); ?>" required>
                         </div>
+
+                        <?php if (!$isResident): ?>
+                        <div class="col-md-6">
+                            <label class="form-label" for="duration_minutes">Appointment Duration</label>
+                            <select class="form-select" id="duration_minutes" name="duration_minutes">
+                                <?php foreach ([15, 30, 45, 60, 90, 120, 180, 240] as $duration): ?>
+                                    <option value="<?php echo $duration; ?>"<?php echo (int)$values['duration_minutes'] === $duration ? ' selected' : ''; ?>><?php echo $duration < 60 ? $duration . ' minutes' : ($duration / 60) . ' hour' . ($duration === 60 ? '' : 's'); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small class="text-muted">Assigned personnel conflicts are checked using this duration.</small>
+                        </div>
+                        <?php else: ?>
+                            <input type="hidden" name="duration_minutes" value="<?php echo (int)$values['duration_minutes']; ?>">
+                        <?php endif; ?>
 
                         <div class="col-12">
                             <label class="form-label" for="notes">Notes</label>
@@ -346,15 +478,22 @@ foreach ($residentOptions as $resident) {
                         <tr><th>Date</th><td><?php echo h($appointment['appointment_date']); ?></td></tr>
                         <tr><th>Time</th><td><?php echo h(date('h:i A', strtotime((string)$appointment['appointment_time']))); ?></td></tr>
                         <tr><th>Status</th><td><?php echo h($appointment['status']); ?></td></tr>
+                        <tr><th>Assigned Personnel</th><td><?php echo h($appointment['assigned_personnel_name']); ?><?php if (!empty($appointment['assigned_personnel_position'])): ?> · <?php echo h($appointment['assigned_personnel_position']); ?><?php endif; ?></td></tr>
+                        <tr><th>Duration</th><td><?php echo (int)($appointment['duration_minutes'] ?? 30); ?> minutes</td></tr>
                         <tr><th>Notes</th><td><?php echo nl2br(h($appointment['notes'])); ?></td></tr>
+                        <?php if (!empty($appointment['is_archived'])): ?>
+                            <tr><th>Archived</th><td><?php echo h(formatDatabaseDateTime($appointment['archived_at'])); ?></td></tr>
+                        <?php endif; ?>
                     </tbody>
                 </table>
 
                 <div class="mt-3">
+                    <?php if (empty($appointment['is_archived'])): ?>
                     <a href="appointment_form.php?id=<?php echo $id; ?>&amp;edit=1" class="btn btn-primary">
                         <i class="fa-solid fa-pen-to-square"></i>
                         Edit
                     </a>
+                    <?php endif; ?>
                     <a href="appointments.php" class="btn btn-secondary ms-2">
                         <i class="fa-solid fa-arrow-left"></i>
                         Back to Appointments
