@@ -106,6 +106,22 @@ function personnelReturnUrl(array $source, string $notice): string {
     return 'officials.php?' . http_build_query($pageState) . $anchor;
 }
 
+function personnelArchiveForm(int $officialId, string $role, string $pageParam, array $pageState): string {
+    $fields = csrfField()
+        . '<input type="hidden" name="form_type" value="archive_official">'
+        . '<input type="hidden" name="official_id" value="' . $officialId . '">'
+        . '<input type="hidden" name="role" value="' . h($role) . '">';
+    foreach ($pageState as $key => $value) {
+        $fields .= '<input type="hidden" name="' . h($key) . '" value="' . h((string)$value) . '">';
+    }
+    $fields .= '<input type="hidden" name="return_section" value="' . h($pageParam) . '">';
+
+    return '<form method="post" action="officials.php" class="d-inline" onsubmit="return confirm(\'Archive this personnel account? It will no longer be active and its slot will be freed.\');">'
+        . $fields
+        . '<button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive</button>'
+        . '</form>';
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'delete_admin') {
     header('Location: officials.php?msg=delete_disabled');
     exit;
@@ -430,6 +446,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'delete_official') {
     $officialError = 'Deleting personnel accounts is disabled. Archive the account to free its personnel slot.';
 }
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'archive_official') {
+    $officialId = filter_var($_POST['official_id'] ?? null, FILTER_VALIDATE_INT);
+    $officialRole = (string)($_POST['role'] ?? '');
+    if ($officialId === false || $officialId <= 0 || !in_array($officialRole, ['staff', 'health_worker', 'security_force'], true)) {
+        $officialError = 'Choose a valid personnel account to archive.';
+    } else {
+        try {
+            $archiveStmt = $conn->prepare("UPDATE users SET status = 'Archived' WHERE id = ? AND role = ? AND status <> 'Archived'");
+            $archiveStmt->bind_param('is', $officialId, $officialRole);
+            $archiveStmt->execute();
+            $archived = $archiveStmt->affected_rows === 1;
+            $archiveStmt->close();
+            if ($archived) {
+                logActivity($conn, 'updated', 'users', 'Archived personnel account.', (int)$officialId);
+                header('Location: ' . personnelReturnUrl($_POST, 'archived'));
+                exit;
+            }
+            $officialError = 'The personnel account could not be archived. It may already be archived or no longer exist.';
+        } catch (Throwable $exception) {
+            error_log('Personnel archive failed: ' . $exception->getMessage());
+            $officialError = 'The personnel account could not be archived. Please try again.';
+        }
+    }
+}
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'official_photo') {
     $officialId = (int)($_POST['official_id'] ?? 0);
     $file = $_FILES['official_photo'] ?? null;
@@ -567,7 +607,10 @@ function renderPersonnelTable(mysqli_result $people, string $title, string $icon
             } else {
                 echo '<span class="text-muted">No photo</span>';
             }
-            echo '</td><td>' . h($personName) . '</td><td>' . h($person['position'] ?: 'Not set') . '</td><td>' . h($person['email']) . '</td><td>' . h($person['term'] ?: 'Not set') . (!empty($person['term_end']) ? '<br><small class="text-muted">Ends ' . h(date('M d, Y', strtotime($person['term_end']))) . '</small>' : '') . '</td><td><span class="badge ' . ($person['status'] === 'Active' ? 'bg-success' : 'bg-secondary') . '">' . h($person['status']) . '</span></td><td class="text-nowrap"><a href="record_view.php?type=personnel&amp;id=' . (int)$person['id'] . '" class="btn btn-sm btn-outline-primary">View</a> <a href="' . h(personnelEditUrl((int)$person['id'], $pageParam, $pageState)) . '" class="btn btn-sm btn-outline-secondary">Edit</a></td></tr>';
+            $archiveButton = $person['status'] !== 'Archived'
+                ? ' ' . personnelArchiveForm((int)$person['id'], (string)$person['role'], $pageParam, $pageState)
+                : '';
+            echo '</td><td>' . h($personName) . '</td><td>' . h($person['position'] ?: 'Not set') . '</td><td>' . h($person['email']) . '</td><td>' . h($person['term'] ?: 'Not set') . (!empty($person['term_end']) ? '<br><small class="text-muted">Ends ' . h(date('M d, Y', strtotime($person['term_end']))) . '</small>' : '') . '</td><td><span class="badge ' . ($person['status'] === 'Active' ? 'bg-success' : 'bg-secondary') . '">' . h($person['status']) . '</span></td><td class="text-nowrap"><a href="record_view.php?type=personnel&amp;id=' . (int)$person['id'] . '" class="btn btn-sm btn-outline-primary">View</a> <a href="' . h(personnelEditUrl((int)$person['id'], $pageParam, $pageState)) . '" class="btn btn-sm btn-outline-secondary">Edit</a>' . $archiveButton . '</td></tr>';
         }
     }
     echo '</tbody></table></div></div></div></div>';
@@ -636,6 +679,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             <div class="alert alert-danger" role="alert"><?php echo h($officialError); ?></div>
         <?php elseif ($photoSuccess): ?>
             <?php renderToast('Official photo uploaded successfully.'); ?>
+        <?php elseif (isset($_GET['archived'])): ?>
+            <?php renderToast('Personnel account archived successfully.'); ?>
         <?php elseif (isset($_GET['saved'])): ?>
             <?php renderToast('Official account saved successfully.'); ?>
         <?php elseif (($_GET['msg'] ?? '') === 'delete_disabled'): ?>
@@ -916,6 +961,9 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                                             <td class="text-nowrap">
                                                 <a href="record_view.php?type=personnel&amp;id=<?php echo (int)$official['id']; ?>" class="btn btn-sm btn-outline-primary">View</a>
                                                 <a href="<?php echo h(personnelEditUrl((int)$official['id'], 'official_page', $personnelPageState)); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
+                                                <?php if ($official['status'] !== 'Archived'): ?>
+                                                    <?php echo personnelArchiveForm((int)$official['id'], 'staff', 'official_page', $personnelPageState); ?>
+                                                <?php endif; ?>
                                             </td>
 
                                         </tr>
