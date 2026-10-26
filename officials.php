@@ -1466,14 +1466,10 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         const restoring = form.dataset.action === 'restore';
         const isOfficial = form.dataset.personnelRole === 'staff';
         pendingForm = form;
-        if (restoring) {
-            archiveReason.removeAttribute('form');
-        } else {
-            archiveReason.setAttribute('form', form.id);
-        }
         dialog.classList.toggle('is-restoring', restoring);
         archiveReasonField.hidden = restoring;
-        archiveReason.required = !restoring;
+        archiveReason.required = false;
+        archiveReason.setAttribute('aria-required', restoring ? 'false' : 'true');
         archiveReason.value = '';
         personName.textContent = form.dataset.personName || 'Selected personnel account';
         title.textContent = restoring
@@ -1494,7 +1490,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         icon.className = 'fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive');
         confirmButton.innerHTML = '<i class="fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive') + '" aria-hidden="true"></i> ' + (restoring ? 'Restore account' : 'Archive account');
         dialog.showModal();
-        (restoring ? cancelButton : archiveReason).focus();
+        (restoring ? cancelButton : archiveReason).focus({preventScroll: true});
     });
 
     const sectionForLink = (link) => {
@@ -1577,24 +1573,29 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                 archiveReason.focus();
                 return;
             }
-            archiveReason.value = reason;
+            let reasonInput = pendingForm.querySelector('input[name="archive_reason"]');
+            if (!reasonInput) {
+                reasonInput = document.createElement('input');
+                reasonInput.type = 'hidden';
+                reasonInput.name = 'archive_reason';
+                pendingForm.appendChild(reasonInput);
+            }
+            reasonInput.value = reason;
         }
         confirmButton.disabled = true;
         pendingForm.submit();
     });
     dialog.addEventListener('close', () => {
-        archiveReason.removeAttribute('form');
-        archiveReason.required = false;
         archiveReason.value = '';
         pendingForm = null;
         confirmButton.disabled = false;
     });
     if (dialog.dataset.reopenArchive === 'true') {
         pendingForm = document.getElementById('archive-personnel-' + dialog.dataset.reopenArchiveId);
-        if (pendingForm) archiveReason.setAttribute('form', pendingForm.id);
-        archiveReason.required = true;
+        archiveReason.required = false;
+        archiveReason.setAttribute('aria-required', 'true');
         dialog.showModal();
-        archiveReason.focus();
+        archiveReason.focus({preventScroll: true});
     }
 })();
 </script>
