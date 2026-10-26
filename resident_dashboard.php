@@ -185,8 +185,8 @@ $certificates = $stmt->get_result();
         </section>
 
         <section class="content-section">
-            <div class="section-header"><div><h3>Complaints Involving You</h3><p>Includes complaints you filed and complaints that name you as the complainee.</p></div></div>
-            <div class="table-responsive"><table><thead><tr><th>Tracking No.</th><th>Complainant</th><th>Complainee</th><th>Category</th><th>Date Filed</th><th>Status</th></tr></thead><tbody>
+            <div class="section-header"><div><h3>Complaints Involving You</h3><p>Includes complaints you filed and complaints that name you as the respondent.</p></div></div>
+            <div class="table-responsive"><table><thead><tr><th>Tracking No.</th><th>Complainant</th><th>Respondent</th><th>Category</th><th>Date Filed</th><th>Status</th></tr></thead><tbody>
             <?php if ($complaints->num_rows === 0): ?><tr><td colspan="6">No complaints involving you.</td></tr>
             <?php else: while ($complaint = $complaints->fetch_assoc()): ?><tr><td><?php echo h($complaint['tracking_number']); ?></td><td><?php echo h($complaint['resident_name']); ?></td><td><?php echo h($complaint['complainee_name']); ?></td><td><?php echo h($complaint['category']); ?></td><td><?php echo h($complaint['date_filed']); ?></td><td><?php echo h($complaint['status']); ?></td></tr><?php endwhile; endif; ?>
             </tbody></table></div>

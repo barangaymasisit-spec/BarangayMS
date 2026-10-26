@@ -617,7 +617,7 @@ function renderNotice(array $labels = []): void {
     if ($text === '') {
         return;
     }
-    renderToast($text, in_array($key, ['missing', 'delete_disabled', 'status_only', 'invalid_status', 'no_change'], true) ? 'error' : 'success');
+    renderToast($text, in_array($key, ['missing', 'delete_disabled', 'status_only', 'invalid_status', 'no_change', 'archived_read_only', 'action_error'], true) ? 'error' : 'success');
 }
 
 function renderFooterScripts(bool $withBootstrap = true): void {

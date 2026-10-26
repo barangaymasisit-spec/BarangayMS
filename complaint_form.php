@@ -13,7 +13,7 @@ if ($isResident && ($id > 0 || !$currentResident)) {
 }
 
 if ($id > 0) {
-    $stmt = $conn->prepare('SELECT * FROM complaints WHERE id = ?');
+    $stmt = $conn->prepare("SELECT c.*, CASE WHEN u.id IS NULL THEN 'Not assigned' ELSE CONCAT(u.first_name, ' ', u.last_name) END AS assigned_personnel_name, u.position AS assigned_personnel_position FROM complaints c LEFT JOIN users u ON u.id = c.assigned_to_user_id WHERE c.id = ?");
     $stmt->bind_param('i', $id);
     $stmt->execute();
     $complaint = $stmt->get_result()->fetch_assoc();
@@ -29,12 +29,22 @@ if ($complaint && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? 
     header('Location: complaints.php?msg=delete_disabled');
     exit;
 }
+if ($complaint && !empty($complaint['is_archived']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Location: complaints.php?view=archived&msg=archived_read_only', true, 303);
+    exit;
+}
 
-$isEdit = $complaint && isset($_GET['edit']);
+$isEdit = $complaint && isset($_GET['edit']) && empty($complaint['is_archived']);
 $isNew = !$complaint;
 
 $residents = $conn->query('SELECT id, resident_number, first_name, middle_name, last_name, suffix FROM residents ORDER BY last_name ASC, first_name ASC');
 $residentOptions = $residents->fetch_all(MYSQLI_ASSOC);
+$assignedPersonnelStmt = $conn->prepare("SELECT id, first_name, last_name, position, status FROM users WHERE role IN ('staff', 'health_worker', 'security_force') AND (status = 'Active' OR id = ?) ORDER BY status = 'Active' DESC, first_name, last_name");
+$currentAssigneeId = (int)($complaint['assigned_to_user_id'] ?? 0);
+$assignedPersonnelStmt->bind_param('i', $currentAssigneeId);
+$assignedPersonnelStmt->execute();
+$assignedPersonnel = $assignedPersonnelStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$assignedPersonnelStmt->close();
 
 // Tracking numbers look like CMP-2026-0007
 function nextTrackingNumber(mysqli $conn): string {
@@ -65,6 +75,8 @@ $values = [
     'date_filed'      => $complaint['date_filed'] ?? date('Y-m-d'),
     'description'     => $complaint['description'] ?? '',
     'response'        => $complaint['response'] ?? '',
+    'resolution_remarks' => $complaint['resolution_remarks'] ?? '',
+    'assigned_to_user_id' => $complaint['assigned_to_user_id'] ?? '',
 ];
 
 if ($isResident) {
@@ -82,9 +94,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $values['resident_name'] = trim($currentResident['first_name'] . ' ' . $currentResident['last_name']);
         $values['status'] = 'Pending';
         $values['response'] = '';
+        $values['resolution_remarks'] = '';
+        $values['assigned_to_user_id'] = '';
     }
     $residentId = (int)$values['resident_id'];
     $complaineeId = (int)$values['complainee_resident_id'];
+    $assignedToId = 0;
+    if (!$isResident && $values['assigned_to_user_id'] !== '') {
+        $validatedAssigneeId = filter_var($values['assigned_to_user_id'], FILTER_VALIDATE_INT);
+        if ($validatedAssigneeId === false || $validatedAssigneeId <= 0) {
+            $error = 'Choose a valid barangay personnel member for this complaint.';
+        } else {
+            $assignedToId = $validatedAssigneeId;
+        }
+    }
 
     // A linked resident fills in the name automatically
     if ($residentId > 0) {
@@ -117,13 +140,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $linkedComplainee['suffix'],
             ])));
         } else {
-            $error = 'Choose a valid resident as the complainee.';
+            $error = 'Choose a valid registered resident as the respondent.';
         }
     } else {
         $values['complainee_name'] = '';
-        $error = 'Please select a registered resident as the complainee.';
+        $error = 'Please select a registered resident as the respondent.';
     }
     $complaineeIdOrNull = $complaineeId > 0 ? $complaineeId : null;
+    $assignedToIdOrNull = $assignedToId > 0 ? $assignedToId : null;
+    if (!$isResident && $assignedToId > 0) {
+        $assignmentStmt = $conn->prepare("SELECT id FROM users WHERE id = ? AND role IN ('staff', 'health_worker', 'security_force') AND (status = 'Active' OR id = ?)");
+        $assignmentStmt->bind_param('ii', $assignedToId, $currentAssigneeId);
+        $assignmentStmt->execute();
+        $validAssignee = (bool)$assignmentStmt->get_result()->fetch_assoc();
+        $assignmentStmt->close();
+        if (!$validAssignee) {
+            $error = 'Choose an active barangay personnel member for this complaint.';
+        }
+    }
 
     if ($error !== '') {
         // Keep the form open with the validation message.
@@ -137,6 +171,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please describe the complaint.';
     } elseif (!in_array($values['status'], $statusOptions, true)) {
         $error = 'Invalid complaint status.';
+    } elseif ($values['status'] === 'Resolved' && ($values['response'] === '' || $values['resolution_remarks'] === '')) {
+        $error = 'Add the action taken and resolution remarks before marking this complaint as resolved.';
     } else {
         $check = $conn->prepare('SELECT id FROM complaints WHERE tracking_number = ? AND id <> ? LIMIT 1');
         $checkId = $complaint ? $id : 0;
@@ -148,48 +184,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($duplicate) {
             $error = 'That tracking number is already used by another complaint.';
         } elseif ($complaint) {
-            $stmt = $conn->prepare('UPDATE complaints SET tracking_number = ?, resident_id = ?, resident_name = ?, complainee_resident_id = ?, complainee_name = ?, category = ?, status = ?, date_filed = ?, description = ?, response = ? WHERE id = ?');
+            $stmt = $conn->prepare('UPDATE complaints SET tracking_number = ?, resident_id = ?, resident_name = ?, complainee_resident_id = ?, complainee_name = ?, assigned_to_user_id = ?, category = ?, status = ?, date_filed = ?, description = ?, response = ?, resolution_remarks = ? WHERE id = ?');
             $stmt->bind_param(
-                'sissssssssi',
+                'sisssissssssi',
                 $values['tracking_number'],
                 $residentIdOrNull,
                 $values['resident_name'],
                 $complaineeIdOrNull,
                 $values['complainee_name'],
+                $assignedToIdOrNull,
                 $values['category'],
                 $values['status'],
                 $values['date_filed'],
                 $values['description'],
                 $values['response'],
+                $values['resolution_remarks'],
                 $id
             );
             $stmt->execute();
             $stmt->close();
             $previousStatus = (string)($complaint['status'] ?? '');
-            $activityDetails = $previousStatus !== $values['status']
-                ? 'Complaint status changed from ' . $previousStatus . ' to ' . $values['status'] . '.'
-                : 'Updated complaint record.';
-            logActivity($conn, 'updated', 'complaints', $activityDetails, $id);
+            if ($previousStatus !== $values['status']) {
+                logActivity($conn, 'updated', 'complaints', 'Complaint status changed from ' . $previousStatus . ' to ' . $values['status'] . '.', $id);
+            }
+            if ((int)($complaint['assigned_to_user_id'] ?? 0) !== $assignedToId) {
+                $assigneeName = 'No personnel';
+                if ($assignedToId > 0) {
+                    foreach ($assignedPersonnel as $personnel) {
+                        if ((int)$personnel['id'] === $assignedToId) {
+                            $assigneeName = trim($personnel['first_name'] . ' ' . $personnel['last_name']);
+                            break;
+                        }
+                    }
+                }
+                logActivity($conn, 'assigned', 'complaints', 'Complaint assignment changed to ' . $assigneeName . '.', $id);
+            }
+            if ($values['status'] === 'Resolved' && ($complaint['response'] !== $values['response'] || ($complaint['resolution_remarks'] ?? '') !== $values['resolution_remarks'])) {
+                logActivity($conn, 'resolved', 'complaints', 'Resolution details recorded.', $id);
+            }
+            if ($previousStatus === $values['status'] && (int)($complaint['assigned_to_user_id'] ?? 0) === $assignedToId && $complaint['response'] === $values['response'] && ($complaint['resolution_remarks'] ?? '') === $values['resolution_remarks']) {
+                logActivity($conn, 'updated', 'complaints', 'Updated complaint record.', $id);
+            }
             header('Location: complaints.php?msg=updated');
             exit;
         } else {
-            $stmt = $conn->prepare('INSERT INTO complaints (tracking_number, resident_id, resident_name, complainee_resident_id, complainee_name, category, status, date_filed, description, response) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            $stmt = $conn->prepare('INSERT INTO complaints (tracking_number, resident_id, resident_name, complainee_resident_id, complainee_name, assigned_to_user_id, category, status, date_filed, description, response, resolution_remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->bind_param(
-                'sissssssss',
+                'sisssissssss',
                 $values['tracking_number'],
                 $residentIdOrNull,
                 $values['resident_name'],
                 $complaineeIdOrNull,
                 $values['complainee_name'],
+                $assignedToIdOrNull,
                 $values['category'],
                 $values['status'],
                 $values['date_filed'],
                 $values['description'],
-                $values['response']
+                $values['response'],
+                $values['resolution_remarks']
             );
             $stmt->execute();
             $stmt->close();
             logActivity($conn, 'created', 'complaints', 'Created complaint with status ' . $values['status'] . '.', $conn->insert_id);
+            if ($assignedToId > 0) {
+                $assignedName = '';
+                foreach ($assignedPersonnel as $personnel) {
+                    if ((int)$personnel['id'] === $assignedToId) {
+                        $assignedName = trim($personnel['first_name'] . ' ' . $personnel['last_name']);
+                        break;
+                    }
+                }
+                logActivity($conn, 'assigned', 'complaints', 'Complaint assigned to ' . ($assignedName ?: 'barangay personnel') . '.', $conn->insert_id);
+            }
+            if ($values['status'] === 'Resolved') {
+                logActivity($conn, 'resolved', 'complaints', 'Resolution details recorded.', $conn->insert_id);
+            }
             header('Location: ' . ($isResident ? 'resident_dashboard.php?msg=complaint_created' : 'complaints.php?msg=created'));
             exit;
         }
@@ -283,7 +353,7 @@ foreach ($residentOptions as $resident) {
                         <?php endif; ?>
 
                         <div class="col-md-6">
-                            <label class="form-label" for="complainee_search">Complainee</label>
+                            <label class="form-label" for="complainee_search">Respondent</label>
                             <div class="resident-search">
                                 <input type="hidden" id="complainee_resident_id" name="complainee_resident_id" value="<?php echo (int)$values['complainee_resident_id']; ?>">
                                 <input type="text" class="form-control" id="complainee_search" name="complainee_search" value="<?php echo h($complaineeSearch); ?>" placeholder="Search resident name or number" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="complainee-suggestions" required>
@@ -310,6 +380,17 @@ foreach ($residentOptions as $resident) {
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="assigned_to_user_id">Assigned Personnel</label>
+                            <select class="form-select" id="assigned_to_user_id" name="assigned_to_user_id">
+                                <option value="">Unassigned</option>
+                                <?php foreach ($assignedPersonnel as $personnel): ?>
+                                    <option value="<?php echo (int)$personnel['id']; ?>"<?php echo (int)$values['assigned_to_user_id'] === (int)$personnel['id'] ? ' selected' : ''; ?>>
+                                        <?php echo h(trim($personnel['first_name'] . ' ' . $personnel['last_name']) . ($personnel['position'] ? ' · ' . $personnel['position'] : '') . ($personnel['status'] !== 'Active' ? ' · Archived personnel (historical assignment)' : '')); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                         <?php endif; ?>
 
                         <div class="col-md-4">
@@ -324,8 +405,14 @@ foreach ($residentOptions as $resident) {
 
                         <?php if (!$isResident): ?>
                         <div class="col-12">
-                            <label class="form-label" for="response">Action Taken / Response</label>
-                            <textarea class="form-control" id="response" name="response" rows="3"><?php echo h($values['response']); ?></textarea>
+                            <label class="form-label" for="response">Resolution Action Taken <span class="resolution-required-indicator" hidden>*</span></label>
+                            <textarea class="form-control" id="response" name="response" rows="3" placeholder="Record the steps taken to resolve the complaint."><?php echo h($values['response']); ?></textarea>
+                            <small class="text-muted">Required before setting the status to Resolved.</small>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="resolution_remarks">Resolution Remarks <span class="resolution-required-indicator" hidden>*</span></label>
+                            <textarea class="form-control" id="resolution_remarks" name="resolution_remarks" rows="3" placeholder="Add the outcome or any follow-up notes."><?php echo h($values['resolution_remarks']); ?></textarea>
+                            <small class="text-muted">Required before setting the status to Resolved.</small>
                         </div>
                         <?php endif; ?>
 
@@ -354,20 +441,24 @@ foreach ($residentOptions as $resident) {
                     <tbody>
                         <tr><th style="width:220px">Tracking Number</th><td><?php echo h($complaint['tracking_number']); ?></td></tr>
                         <tr><th>Complainant</th><td><?php echo h($complaint['resident_name']); ?></td></tr>
-                        <tr><th>Complainee</th><td><?php echo h($complaint['complainee_name'] ?? ''); ?></td></tr>
+                        <tr><th>Respondent</th><td><?php echo h($complaint['complainee_name'] ?? ''); ?></td></tr>
                         <tr><th>Category</th><td><?php echo h($complaint['category']); ?></td></tr>
                         <tr><th>Status</th><td><?php echo h($complaint['status']); ?></td></tr>
+                        <tr><th>Assigned Personnel</th><td><?php echo h($complaint['assigned_personnel_name']); ?><?php if (!empty($complaint['assigned_personnel_position'])): ?> · <?php echo h($complaint['assigned_personnel_position']); ?><?php endif; ?></td></tr>
                         <tr><th>Date Filed</th><td><?php echo h($complaint['date_filed']); ?></td></tr>
                         <tr><th>Description</th><td><?php echo nl2br(h($complaint['description'])); ?></td></tr>
-                        <tr><th>Action Taken</th><td><?php echo nl2br(h($complaint['response'])); ?></td></tr>
+                        <tr><th>Resolution Action Taken</th><td><?php echo nl2br(h($complaint['response'])); ?></td></tr>
+                        <tr><th>Resolution Remarks</th><td><?php echo nl2br(h($complaint['resolution_remarks'] ?? '')); ?></td></tr>
                     </tbody>
                 </table>
 
                 <div class="mt-3">
+                    <?php if (empty($complaint['is_archived'])): ?>
                     <a href="complaint_form.php?id=<?php echo $id; ?>&amp;edit=1" class="btn btn-primary">
                         <i class="fa-solid fa-pen-to-square"></i>
                         Edit
                     </a>
+                    <?php endif; ?>
                     <a href="complaints.php" class="btn btn-secondary ms-2">
                         <i class="fa-solid fa-arrow-left"></i>
                         Back to Complaints
@@ -493,6 +584,20 @@ foreach ($residentOptions as $resident) {
     if (complaineeSearch && complaineeId && complaineeId.value === '') {
         complaineeSearch.setCustomValidity('Choose a registered resident from the suggestions.');
     }
+    const complaintStatus = document.getElementById('status');
+    const resolutionAction = document.getElementById('response');
+    const resolutionRemarks = document.getElementById('resolution_remarks');
+    const resolutionRequiredIndicators = document.querySelectorAll('.resolution-required-indicator');
+    const updateResolutionRequirements = () => {
+        const isResolved = complaintStatus?.value === 'Resolved';
+        if (resolutionAction) resolutionAction.required = isResolved;
+        if (resolutionRemarks) resolutionRemarks.required = isResolved;
+        resolutionRequiredIndicators.forEach((indicator) => {
+            indicator.hidden = !isResolved;
+        });
+    };
+    complaintStatus?.addEventListener('change', updateResolutionRequirements);
+    updateResolutionRequirements();
 </script>
 </body>
 </html>

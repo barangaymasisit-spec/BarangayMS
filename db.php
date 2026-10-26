@@ -1159,6 +1159,35 @@ function ensureComplaintAudienceColumns(mysqli $conn): void {
     }
 }
 
+function ensureComplaintManagementColumns(mysqli $conn): void {
+    if (!databaseTableExists($conn, 'complaints')) {
+        return;
+    }
+
+    $columns = [];
+    foreach ($conn->query("SHOW COLUMNS FROM complaints WHERE Field IN ('assigned_to_user_id', 'resolution_remarks', 'is_archived', 'archived_at')")->fetch_all(MYSQLI_ASSOC) as $column) {
+        $columns[$column['Field']] = true;
+    }
+    if (!isset($columns['assigned_to_user_id'])) {
+        $conn->query('ALTER TABLE complaints ADD COLUMN assigned_to_user_id INT UNSIGNED NULL AFTER complainee_name');
+    }
+    if (!isset($columns['resolution_remarks'])) {
+        $conn->query('ALTER TABLE complaints ADD COLUMN resolution_remarks TEXT NULL AFTER response');
+    }
+    if (!isset($columns['is_archived'])) {
+        $conn->query('ALTER TABLE complaints ADD COLUMN is_archived TINYINT(1) NOT NULL DEFAULT 0 AFTER resolution_remarks');
+    }
+    if (!isset($columns['archived_at'])) {
+        $conn->query('ALTER TABLE complaints ADD COLUMN archived_at DATETIME DEFAULT NULL AFTER is_archived');
+    }
+    if ($conn->query("SHOW INDEX FROM complaints WHERE Key_name = 'idx_complaints_archive_status'")->num_rows === 0) {
+        $conn->query('ALTER TABLE complaints ADD KEY idx_complaints_archive_status (is_archived, status)');
+    }
+    if ($conn->query("SHOW INDEX FROM complaints WHERE Key_name = 'idx_complaints_assigned_to'")->num_rows === 0) {
+        $conn->query('ALTER TABLE complaints ADD KEY idx_complaints_assigned_to (assigned_to_user_id)');
+    }
+}
+
 function ensureAppointmentRequesterColumn(mysqli $conn): void {
     if (!databaseTableExists($conn, 'appointments')) {
         return;
@@ -1208,6 +1237,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     runDatabaseMigration(static fn () => ensureAnnouncementsTable($GLOBALS['conn']), 'announcements');
     runDatabaseMigration(static fn () => ensureUserAccountColumns($GLOBALS['conn']), 'user account columns');
     runDatabaseMigration(static fn () => ensureComplaintAudienceColumns($GLOBALS['conn']), 'complaint audience columns');
+    runDatabaseMigration(static fn () => ensureComplaintManagementColumns($GLOBALS['conn']), 'complaint management columns');
     runDatabaseMigration(static fn () => ensureAppointmentRequesterColumn($GLOBALS['conn']), 'appointment requester column');
     runDatabaseMigration(static fn () => ensureCertificateRequesterColumns($GLOBALS['conn']), 'certificate requester columns');
     runDatabaseMigration(static fn () => ensureCertificateManagementColumns($GLOBALS['conn']), 'certificate archive columns');

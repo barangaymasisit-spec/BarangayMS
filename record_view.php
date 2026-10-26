@@ -49,7 +49,15 @@ $queries = [
         'identifier_label' => 'REQUEST NO.',
     ],
     'complaint' => [
-        'sql' => 'SELECT c.*, r.resident_number AS linked_resident_number, COALESCE(NULLIF(c.resident_name, ""), CONCAT(r.first_name, " ", r.last_name), "Unknown") AS linked_resident_name FROM complaints c LEFT JOIN residents r ON r.id = c.resident_id WHERE c.id = ?',
+        'sql' => "SELECT c.*, r.resident_number AS linked_resident_number,
+                         COALESCE(NULLIF(c.resident_name, ''), CONCAT(r.first_name, ' ', r.last_name), 'Unknown') AS linked_resident_name,
+                         CASE WHEN u.id IS NULL THEN 'Not assigned'
+                              ELSE CONCAT(u.first_name, ' ', u.last_name, CASE WHEN NULLIF(u.position, '') IS NULL THEN '' ELSE CONCAT(' · ', u.position) END)
+                         END AS assigned_personnel_name
+                  FROM complaints c
+                  LEFT JOIN residents r ON r.id = c.resident_id
+                  LEFT JOIN users u ON u.id = c.assigned_to_user_id
+                  WHERE c.id = ?",
         'kind' => 'Complaint Record',
         'identifier_label' => 'TRACKING NO.',
     ],
@@ -179,13 +187,15 @@ if ($record) {
         $sections = [
             'Complaint Details' => [
                 'linked_resident_name' => 'Complainant',
-                'complainee_name' => 'Complainee',
+                'complainee_name' => 'Respondent',
                 'linked_resident_number' => 'Resident Number',
                 'category' => 'Category',
                 'status' => 'Status',
+                'assigned_personnel_name' => 'Assigned Personnel',
                 'date_filed' => 'Date Filed',
                 'description' => 'Description',
-                'response' => 'Barangay Response',
+                'response' => 'Resolution Action Taken',
+                'resolution_remarks' => 'Resolution Remarks',
             ],
             'Record Information' => [
                 'created_at' => 'Record Created',
@@ -250,6 +260,9 @@ $editUrl = match ($type) {
     'emergency' => '',
     default => '',
 };
+if ($type === 'complaint' && !empty($record['is_archived'])) {
+    $editUrl = '';
+}
 $activePage = match ($type) {
     'personnel' => 'officials',
     'household' => 'household',

@@ -230,16 +230,22 @@ CREATE TABLE IF NOT EXISTS `complaints` (
   `resident_name` VARCHAR(200) DEFAULT NULL,
   `complainee_resident_id` INT UNSIGNED DEFAULT NULL,
   `complainee_name` VARCHAR(200) DEFAULT NULL,
+  `assigned_to_user_id` INT UNSIGNED DEFAULT NULL,
   `category` VARCHAR(150) DEFAULT NULL,
   `status` VARCHAR(50) DEFAULT NULL,
   `date_filed` DATE DEFAULT NULL,
   `description` TEXT DEFAULT NULL,
   `response` TEXT DEFAULT NULL,
+  `resolution_remarks` TEXT DEFAULT NULL,
+  `is_archived` TINYINT(1) NOT NULL DEFAULT 0,
+  `archived_at` DATETIME DEFAULT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_complaint_resident_id` (`resident_id`),
-  KEY `idx_complaint_complainee_resident_id` (`complainee_resident_id`)
+  KEY `idx_complaint_complainee_resident_id` (`complainee_resident_id`),
+  KEY `idx_complaints_archive_status` (`is_archived`, `status`),
+  KEY `idx_complaints_assigned_to` (`assigned_to_user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `appointments` (
