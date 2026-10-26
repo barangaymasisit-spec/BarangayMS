@@ -879,6 +879,19 @@ hr{
     display:inline-flex !important;
 }
 
+.official-archive-details{
+    display:block;
+    max-width:230px;
+    margin-top:6px;
+    color:#667085;
+    font-size:11px;
+    line-height:1.45;
+}
+
+.official-archive-details span{
+    display:block;
+}
+
 .personnel-archive-dialog{
     position:fixed;
     inset:0;
@@ -962,6 +975,43 @@ hr{
     color:#0b4a9e !important;
     font-size:15px !important;
     font-weight:600;
+}
+
+.personnel-archive-reason-field{
+    margin-top:18px;
+    text-align:left;
+}
+
+.personnel-archive-reason-field label{
+    display:block;
+    margin-bottom:7px;
+    color:#344054;
+    font-size:12px;
+    font-weight:600;
+}
+
+.personnel-archive-reason-field label span{
+    color:#c9372c;
+}
+
+.personnel-archive-reason-field textarea{
+    display:block;
+    width:100%;
+    min-height:82px;
+    resize:vertical;
+    padding:10px 12px;
+    border:1px solid #d7deea;
+    border-radius:10px;
+    background:#fff;
+    color:#344054;
+    font:inherit;
+    font-size:12px;
+    line-height:1.5;
+}
+
+.personnel-archive-reason-field textarea:focus{
+    border-color:#0b4a9e;
+    outline:3px solid rgba(11,74,158,.12);
 }
 
 .personnel-archive-dialog__note{

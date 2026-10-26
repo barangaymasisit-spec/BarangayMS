@@ -54,6 +54,14 @@ $photoMimeColumn = $conn->query("SHOW COLUMNS FROM users LIKE 'photo_mime'");
 if ($photoMimeColumn && $photoMimeColumn->num_rows === 0) {
     $conn->query("ALTER TABLE users ADD COLUMN photo_mime VARCHAR(50) DEFAULT NULL AFTER photo_data");
 }
+$archivedAtColumn = $conn->query("SHOW COLUMNS FROM users LIKE 'archived_at'");
+if ($archivedAtColumn && $archivedAtColumn->num_rows === 0) {
+    $conn->query('ALTER TABLE users ADD COLUMN archived_at DATETIME DEFAULT NULL');
+}
+$archiveReasonColumn = $conn->query("SHOW COLUMNS FROM users LIKE 'archive_reason'");
+if ($archiveReasonColumn && $archiveReasonColumn->num_rows === 0) {
+    $conn->query('ALTER TABLE users ADD COLUMN archive_reason VARCHAR(500) DEFAULT NULL');
+}
 $uploadError = '';
 $officialError = '';
 $officialSuccess = '';
@@ -112,6 +120,7 @@ function personnelArchiveForm(int $officialId, string $role, string $personName,
     $fields = csrfField()
         . '<input type="hidden" name="form_type" value="archive_official">'
         . '<input type="hidden" name="official_id" value="' . $officialId . '">'
+        . '<input type="hidden" name="archive_reason" value="">'
         . '<input type="hidden" name="role" value="' . h($role) . '">';
     foreach ($pageState as $key => $value) {
         $fields .= '<input type="hidden" name="' . h($key) . '" value="' . h((string)$value) . '">';
@@ -495,17 +504,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'de
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'archive_official') {
     $officialId = filter_var($_POST['official_id'] ?? null, FILTER_VALIDATE_INT);
     $officialRole = (string)($_POST['role'] ?? '');
+    $archiveReason = trim((string)($_POST['archive_reason'] ?? ''));
+    $archiveReasonLength = function_exists('mb_strlen') ? mb_strlen($archiveReason, 'UTF-8') : strlen($archiveReason);
     if ($officialId === false || $officialId <= 0 || !in_array($officialRole, ['staff', 'health_worker', 'security_force'], true)) {
         $officialError = 'Choose a valid personnel account to archive.';
+    } elseif ($archiveReason === '' || $archiveReasonLength > 500) {
+        $officialError = 'Enter an archive reason of 1 to 500 characters.';
     } else {
         try {
-            $archiveStmt = $conn->prepare("UPDATE users SET status = 'Archived' WHERE id = ? AND role = ? AND status <> 'Archived'");
-            $archiveStmt->bind_param('is', $officialId, $officialRole);
+            $archiveStmt = $conn->prepare("UPDATE users SET status = 'Archived', archived_at = NOW(), archive_reason = ? WHERE id = ? AND role = ? AND status <> 'Archived'");
+            $archiveStmt->bind_param('sis', $archiveReason, $officialId, $officialRole);
             $archiveStmt->execute();
             $archived = $archiveStmt->affected_rows === 1;
             $archiveStmt->close();
             if ($archived) {
-                logActivity($conn, 'updated', 'users', 'Archived personnel account.', (int)$officialId);
+                logActivity($conn, 'updated', 'users', 'Archived personnel account. Reason: ' . $archiveReason, (int)$officialId);
                 $returnState = $_POST;
                 if ($officialRole === 'staff') {
                     $returnState['official_view'] = 'archived';
@@ -689,7 +702,7 @@ function fetchPersonnelPage(mysqli $conn, string $role, string $search, string $
         $types .= 's';
     }
 
-    $sql = "SELECT id, first_name, last_name, username, role, email, status, term, term_end, position, photo_path, photo_data IS NOT NULL AS has_photo_data FROM users WHERE " . implode(' AND ', $where) . " ORDER BY CASE WHEN LOWER(position) LIKE '%vice%' OR LOWER(position) LIKE '%deputy%' THEN 2 WHEN LOWER(position) LIKE '%captain%' OR LOWER(position) LIKE '%punong barangay%' THEN 1 WHEN LOWER(position) LIKE '%kagawad%' OR LOWER(position) LIKE '%councilor%' THEN 3 WHEN LOWER(position) LIKE '%secretary%' THEN 4 WHEN LOWER(position) LIKE '%treasurer%' THEN 5 ELSE 99 END ASC, position ASC, last_name ASC, first_name ASC LIMIT ? OFFSET ?";
+    $sql = "SELECT id, first_name, last_name, username, role, email, status, term, term_end, archived_at, archive_reason, position, photo_path, photo_data IS NOT NULL AS has_photo_data FROM users WHERE " . implode(' AND ', $where) . " ORDER BY CASE WHEN LOWER(position) LIKE '%vice%' OR LOWER(position) LIKE '%deputy%' THEN 2 WHEN LOWER(position) LIKE '%captain%' OR LOWER(position) LIKE '%punong barangay%' THEN 1 WHEN LOWER(position) LIKE '%kagawad%' OR LOWER(position) LIKE '%councilor%' THEN 3 WHEN LOWER(position) LIKE '%secretary%' THEN 4 WHEN LOWER(position) LIKE '%treasurer%' THEN 5 ELSE 99 END ASC, position ASC, last_name ASC, first_name ASC LIMIT ? OFFSET ?";
     $countSql = 'SELECT COUNT(*) FROM users WHERE ' . implode(' AND ', $where);
 
     $countStmt = $conn->prepare($countSql);
@@ -766,7 +779,10 @@ function renderPersonnelTable(mysqli_result $people, string $title, string $icon
                     ? ' <span class="badge bg-secondary">Term ended</span>'
                     : ' ' . personnelRestoreForm((int)$person['id'], (string)$person['role'], $personName, $pageParam, $pageState))
                 : '';
-            echo '</td><td>' . h($personName) . '</td><td>' . h($person['position'] ?: 'Not set') . '</td><td>' . h($person['email']) . '</td><td>' . h($person['term'] ?: 'Not set') . (!empty($person['term_end']) ? '<br><small class="text-muted">Ends ' . h(date('M d, Y', strtotime($person['term_end']))) . '</small>' : '') . '</td><td><span class="badge ' . ($person['status'] === 'Active' ? 'bg-success' : 'bg-secondary') . '">' . h($person['status']) . '</span></td><td class="official-action-buttons"><a href="record_view.php?type=personnel&amp;id=' . (int)$person['id'] . '" class="btn btn-sm btn-outline-primary">View</a> <a href="' . h(personnelEditUrl((int)$person['id'], $pageParam, $pageState)) . '" class="btn btn-sm btn-outline-secondary">Edit</a>' . $archiveButton . $restoreButton . '</td></tr>';
+            $archiveDetails = $person['status'] === 'Archived' && !empty($person['archived_at'])
+                ? '<small class="official-archive-details"><span>Archived ' . h(date('M d, Y', strtotime($person['archived_at']))) . '</span>' . (!empty($person['archive_reason']) ? '<span>Reason: ' . h($person['archive_reason']) . '</span>' : '') . '</small>'
+                : '';
+            echo '</td><td>' . h($personName) . '</td><td>' . h($person['position'] ?: 'Not set') . '</td><td>' . h($person['email']) . '</td><td>' . h($person['term'] ?: 'Not set') . (!empty($person['term_end']) ? '<br><small class="text-muted">Ends ' . h(date('M d, Y', strtotime($person['term_end']))) . '</small>' : '') . $archiveDetails . '</td><td><span class="badge ' . ($person['status'] === 'Active' ? 'bg-success' : 'bg-secondary') . '">' . h($person['status']) . '</span></td><td class="official-action-buttons"><a href="record_view.php?type=personnel&amp;id=' . (int)$person['id'] . '" class="btn btn-sm btn-outline-primary">View</a> <a href="' . h(personnelEditUrl((int)$person['id'], $pageParam, $pageState)) . '" class="btn btn-sm btn-outline-secondary">Edit</a>' . $archiveButton . $restoreButton . '</td></tr>';
         }
     }
     echo '</tbody></table></div></div></div></div>';
@@ -1131,7 +1147,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
                                             <td><?php echo h($official['email']); ?></td>
 
-                                            <td><?php echo h($official['term'] ?: 'Not set'); ?><?php if (!empty($official['term_end'])): ?><br><small class="text-muted">Ends <?php echo h(date('M d, Y', strtotime($official['term_end']))); ?></small><?php endif; ?></td>
+                                            <td><?php echo h($official['term'] ?: 'Not set'); ?><?php if (!empty($official['term_end'])): ?><br><small class="text-muted">Ends <?php echo h(date('M d, Y', strtotime($official['term_end']))); ?></small><?php endif; ?><?php if ($officialView === 'archived' && !empty($official['archived_at'])): ?><small class="official-archive-details"><span>Archived <?php echo h(date('M d, Y', strtotime($official['archived_at']))); ?></span><?php if (!empty($official['archive_reason'])): ?><span>Reason: <?php echo h($official['archive_reason']); ?></span><?php endif; ?></small><?php endif; ?></td>
 
                                             <td>
                                                 <span class="badge <?php echo $official['status'] === 'Active' ? 'bg-success' : 'bg-secondary'; ?>">
@@ -1203,6 +1219,10 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     <h2 id="personnelActionTitle">Archive this personnel?</h2>
     <p class="personnel-archive-dialog__person" id="personnelActionName"></p>
     <p id="personnelActionDescription">This account will be moved to Archived Officials. Its personnel slot will be available again.</p>
+    <div class="personnel-archive-reason-field" id="personnelArchiveReasonField">
+        <label for="personnelArchiveReason">Reason for archiving <span aria-hidden="true">*</span></label>
+        <textarea id="personnelArchiveReason" maxlength="500" rows="3" placeholder="Briefly explain why this account is being archived"></textarea>
+    </div>
     <div class="personnel-archive-dialog__note">
         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
         <span id="personnelActionNote">You can restore this account later if its term is still valid and its position is available.</span>
@@ -1221,6 +1241,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     const description = document.getElementById('personnelActionDescription');
     const note = document.getElementById('personnelActionNote');
     const icon = document.getElementById('personnelActionIcon');
+    const archiveReasonField = document.getElementById('personnelArchiveReasonField');
+    const archiveReason = document.getElementById('personnelArchiveReason');
     const cancelButton = document.getElementById('cancelPersonnelAction');
     const confirmButton = document.getElementById('confirmPersonnelAction');
     let pendingForm = null;
@@ -1233,6 +1255,9 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             const isOfficial = form.dataset.personnelRole === 'staff';
             pendingForm = form;
             dialog.classList.toggle('is-restoring', restoring);
+            archiveReasonField.hidden = restoring;
+            archiveReason.required = !restoring;
+            archiveReason.value = '';
             personName.textContent = form.dataset.personName || 'Selected personnel account';
             title.textContent = restoring
                 ? (isOfficial ? 'Restore this official?' : 'Restore this personnel?')
@@ -1252,7 +1277,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             icon.className = 'fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive');
             confirmButton.innerHTML = '<i class="fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive') + '" aria-hidden="true"></i> ' + (restoring ? 'Restore account' : 'Archive account');
             dialog.showModal();
-            cancelButton.focus();
+            (restoring ? cancelButton : archiveReason).focus();
         });
     });
 
@@ -1262,6 +1287,14 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     });
     confirmButton.addEventListener('click', () => {
         if (!pendingForm) return;
+        if (pendingForm.dataset.action === 'archive') {
+            const reason = archiveReason.value.trim();
+            if (reason === '') {
+                archiveReason.focus();
+                return;
+            }
+            pendingForm.querySelector('[name="archive_reason"]').value = reason;
+        }
         confirmButton.disabled = true;
         pendingForm.submit();
     });
