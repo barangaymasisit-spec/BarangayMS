@@ -307,7 +307,7 @@ $statusOptions = ['Active', 'Archived'];
                             <div class="household-family-manager-heading">
                                 <div>
                                     <h3 id="familyManagerHeading">Family Management</h3>
-                                    <p><?php echo count($existingFamilyNames); ?> existing families · <?php echo count($householdResidents); ?> residents. The household head is automatically Family 1; assign the other residents below.</p>
+                                    <p><span id="familyCount"><?php echo count($existingFamilyNames); ?></span> families · <?php echo count($householdResidents); ?> residents. Add a family head, then assign other residents to that family.</p>
                                 </div>
                                 <button class="btn-primary" type="button" id="addFamilyButton">
                                     <i class="fa-solid fa-plus" aria-hidden="true"></i> Add Family
@@ -447,11 +447,13 @@ $statusOptions = ['Active', 'Archived'];
     const cancelButton = document.getElementById('cancelAddFamily');
     const headPicker = document.getElementById('newFamilyHead');
     const householdHeadPicker = document.getElementById('household_head_resident_id');
+    const familyCount = document.getElementById('familyCount');
     const rows = Array.from(document.querySelectorAll('.resident-assignment-row'));
 
     function syncFamilyRows(){
         const householdHeadId = householdHeadPicker ? householdHeadPicker.value : '';
         const familyHeadIds = new Set([householdHeadId]);
+        familyHeadIds.delete('');
         rows.forEach(function(row){
             const familySelect = row.querySelector('.resident-family-select');
             const roleInput = row.querySelector('input[name^="family_role["]');
@@ -465,16 +467,30 @@ $statusOptions = ['Active', 'Archived'];
                 familyHeadIds.add(residentId);
                 if (roleInput) roleInput.value = 'Family Head';
             }
+        });
 
-            document.querySelectorAll('.resident-family-select option').forEach(function(option){
-                if (option.value === residentId) {
+        document.querySelectorAll('.resident-family-select').forEach(function(select){
+            const existingFamilies = select.querySelector('optgroup[label="Existing families"]');
+            const newFamilies = select.querySelector('optgroup[label="Start a family with"]');
+            rows.forEach(function(row){
+                const residentId = row.dataset.residentRowId;
+                const residentName = row.querySelector('strong').textContent.trim();
+                const option = select.querySelector('option[value="' + residentId + '"]');
+                if (!option) return;
+                if (familyHeadIds.has(residentId)) {
                     option.textContent = 'Family of ' + residentName;
+                    existingFamilies.appendChild(option);
+                } else {
+                    option.textContent = residentName;
+                    newFamilies.appendChild(option);
                 }
             });
         });
+
         Array.from(headPicker.options).forEach(function(option){
             option.disabled = familyHeadIds.has(option.value);
         });
+        if (familyCount) familyCount.textContent = familyHeadIds.size;
     }
 
     addButton.addEventListener('click', () => dialog.showModal());
