@@ -109,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // A linked resident fills in the name automatically
+    // Resolve the selected complainant from the resident record to keep the link authoritative.
     if ($residentId > 0) {
         $stmt = $conn->prepare('SELECT first_name, middle_name, last_name, suffix FROM residents WHERE id = ?');
         $stmt->bind_param('i', $residentId);
@@ -123,6 +123,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $linked['last_name'],
                 $linked['suffix'],
             ])));
+        } else {
+            $error = 'That complainant resident record is no longer available. Search again or enter an unregistered name.';
+            $values['resident_id'] = '';
+            $residentId = 0;
         }
     }
     $residentIdOrNull = $residentId > 0 ? $residentId : null;
@@ -270,6 +274,7 @@ $showForm = $isNew || $isEdit;
 $title = $isNew ? 'New Complaint' : ($isEdit ? 'Edit Complaint' : 'Complaint Details');
 $categoryOptions = ['Noise Complaint', 'Boundary Dispute', 'Property Damage', 'Theft', 'Physical Injury', 'Domestic Dispute', 'Public Disturbance', 'Others'];
 $complaineeSearch = trim((string)($_POST['complainee_search'] ?? ''));
+$complainantChoices = [];
 $complaineeChoices = [];
 foreach ($residentOptions as $resident) {
     $fullName = trim(implode(' ', array_filter([
@@ -278,11 +283,13 @@ foreach ($residentOptions as $resident) {
         $resident['last_name'],
         $resident['suffix'],
     ])));
-    $complaineeChoices[] = [
+    $residentChoice = [
         'id' => (int)$resident['id'],
         'label' => $fullName . ' (' . $resident['resident_number'] . ')',
         'search' => $fullName . ' ' . $resident['resident_number'],
     ];
+    $complainantChoices[] = $residentChoice;
+    $complaineeChoices[] = $residentChoice;
     if ($complaineeSearch === '' && (int)$values['complainee_resident_id'] === (int)$resident['id']) {
         $complaineeSearch = $fullName . ' (' . $resident['resident_number'] . ')';
     }
@@ -335,20 +342,16 @@ foreach ($residentOptions as $resident) {
                         </div>
                         <?php else: ?>
                         <div class="col-md-8">
-                            <label class="form-label" for="resident_id">Complainant (Resident)</label>
-                            <select class="form-select" id="resident_id" name="resident_id">
-                                <option value="">Not a registered resident</option>
-                                <?php foreach ($residentOptions as $resident): ?>
-                                    <option value="<?php echo (int)$resident['id']; ?>" data-full-name="<?php echo h(trim(implode(' ', array_filter([$resident['first_name'], $resident['middle_name'], $resident['last_name'], $resident['suffix']])))); ?>"<?php echo (int)$values['resident_id'] === (int)$resident['id'] ? ' selected' : ''; ?>>
-                                        <?php echo h(trim($resident['last_name'] . ', ' . $resident['first_name'] . ' ' . $resident['middle_name'] . ' ' . $resident['suffix']) . ' (' . $resident['resident_number'] . ')'); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-
-                        <div class="col-md-6"<?php echo (int)$values['resident_id'] > 0 ? ' hidden' : ''; ?> id="complainant-name-field">
-                            <label class="form-label" for="resident_name">Complainant Name *</label>
-                            <input type="text" class="form-control" id="resident_name" name="resident_name" value="<?php echo h($values['resident_name']); ?>"<?php echo (int)$values['resident_id'] > 0 ? '' : ' required'; ?>>
+                            <label class="form-label" for="resident_name">Complainant *</label>
+                            <div class="resident-search">
+                                <div class="resident-autocomplete-input">
+                                    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                    <input type="search" class="form-control" id="resident_name" name="resident_name" value="<?php echo h($values['resident_name']); ?>" placeholder="Search resident name or number" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="complainant-suggestions" required>
+                                    <input type="hidden" id="resident_id" name="resident_id" value="<?php echo h($values['resident_id']); ?>">
+                                </div>
+                                <div class="resident-search-results" id="complainant-suggestions" role="listbox" aria-label="Matching complainants" hidden></div>
+                                <small class="resident-search-hint" id="complainant-search-hint">Select a registered resident, or enter a name if they are not registered.</small>
+                            </div>
                         </div>
                         <?php endif; ?>
 
@@ -473,25 +476,121 @@ foreach ($residentOptions as $resident) {
 </div>
 <?php renderFooterScripts(); ?>
 <script>
-    const complainantSelect = document.getElementById('resident_id');
-    const complainantNameField = document.getElementById('complainant-name-field');
-    const complainantNameInput = document.getElementById('resident_name');
-    const updateComplainantName = (clearWhenUnlinked = false) => {
-        if (!complainantSelect || !complainantNameField || !complainantNameInput) return;
-        const selected = complainantSelect.options[complainantSelect.selectedIndex];
-        const fullName = selected?.dataset.fullName || '';
-        if (fullName) {
-            complainantNameInput.value = fullName;
-            complainantNameInput.required = false;
-            complainantNameField.hidden = true;
-        } else {
-            if (clearWhenUnlinked) complainantNameInput.value = '';
-            complainantNameInput.required = true;
-            complainantNameField.hidden = false;
-        }
+    const complainantSearch = document.getElementById('resident_name');
+    const complainantId = document.getElementById('resident_id');
+    const complainantSuggestions = document.getElementById('complainant-suggestions');
+    const complainantHint = document.getElementById('complainant-search-hint');
+    const complainantChoices = <?php echo json_encode($complainantChoices, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+    let activeComplainantSuggestion = -1;
+
+    const closeComplainantSuggestions = () => {
+        if (!complainantSuggestions || !complainantSearch) return;
+        complainantSuggestions.hidden = true;
+        complainantSuggestions.replaceChildren();
+        complainantSearch.setAttribute('aria-expanded', 'false');
+        complainantSearch.removeAttribute('aria-activedescendant');
+        activeComplainantSuggestion = -1;
     };
-    complainantSelect?.addEventListener('change', () => updateComplainantName(true));
-    updateComplainantName();
+
+    const chooseComplainant = (resident) => {
+        complainantId.value = String(resident.id);
+        complainantSearch.value = resident.label.replace(/\s+\([^)]+\)$/, '');
+        complainantHint.textContent = 'Linked resident · ' + resident.label.match(/\(([^)]+)\)$/)?.[1];
+        closeComplainantSuggestions();
+    };
+
+    const showComplainantSuggestions = () => {
+        if (!complainantSearch || !complainantSuggestions) return;
+        complainantId.value = '';
+        const query = complainantSearch.value.trim().toLocaleLowerCase();
+        complainantSuggestions.replaceChildren();
+        activeComplainantSuggestion = -1;
+        if (!query) {
+            closeComplainantSuggestions();
+            complainantHint.textContent = 'Select a registered resident, or enter a name if they are not registered.';
+            return;
+        }
+
+        const matches = complainantChoices
+            .filter((resident) => resident.search.toLocaleLowerCase().includes(query))
+            .slice(0, 8);
+        matches.forEach((resident, index) => {
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.className = 'resident-search-option';
+            option.id = `complainant-option-${index}`;
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', 'false');
+            const name = document.createElement('strong');
+            const number = document.createElement('span');
+            name.textContent = resident.label.replace(/\s+\([^)]+\)$/, '');
+            number.textContent = 'Resident No. ' + (resident.label.match(/\(([^)]+)\)$/)?.[1] || '');
+            option.append(name, number);
+            option.addEventListener('mousedown', (event) => event.preventDefault());
+            option.addEventListener('click', () => chooseComplainant(resident));
+            complainantSuggestions.append(option);
+        });
+
+        const manualOption = document.createElement('button');
+        manualOption.type = 'button';
+        manualOption.className = 'resident-search-option is-manual';
+        manualOption.id = 'complainant-option-manual';
+        manualOption.setAttribute('role', 'option');
+        manualOption.setAttribute('aria-selected', 'false');
+        const manualName = document.createElement('strong');
+        const manualHint = document.createElement('span');
+        manualName.textContent = 'Use as unregistered complainant';
+        manualHint.textContent = complainantSearch.value.trim();
+        manualOption.append(manualName, manualHint);
+        manualOption.addEventListener('mousedown', (event) => event.preventDefault());
+        manualOption.addEventListener('click', () => {
+            complainantId.value = '';
+            complainantSearch.value = complainantSearch.value.trim();
+            complainantHint.textContent = 'This complaint will be saved without linking a resident record.';
+            closeComplainantSuggestions();
+        });
+        complainantSuggestions.append(manualOption);
+        complainantSuggestions.hidden = false;
+        complainantSearch.setAttribute('aria-expanded', 'true');
+        complainantHint.textContent = matches.length
+            ? 'Choose a resident to link the complaint, or use the typed name without a resident record.'
+            : 'No registered residents match. You can use the typed name without linking a resident record.';
+    };
+
+    complainantSearch?.addEventListener('input', showComplainantSuggestions);
+    complainantSearch?.addEventListener('focus', showComplainantSuggestions);
+    complainantSearch?.addEventListener('keydown', (event) => {
+        if (!complainantSuggestions || complainantSuggestions.hidden) return;
+        const options = [...complainantSuggestions.querySelectorAll('[role="option"]')];
+        if (event.key === 'ArrowDown' && options.length) {
+            event.preventDefault();
+            activeComplainantSuggestion = (activeComplainantSuggestion + 1) % options.length;
+        } else if (event.key === 'ArrowUp' && options.length) {
+            event.preventDefault();
+            activeComplainantSuggestion = activeComplainantSuggestion <= 0 ? options.length - 1 : activeComplainantSuggestion - 1;
+        } else if (event.key === 'Enter' && activeComplainantSuggestion >= 0) {
+            event.preventDefault();
+            options[activeComplainantSuggestion].click();
+        } else if (event.key === 'Escape') {
+            closeComplainantSuggestions();
+            return;
+        } else {
+            return;
+        }
+        options.forEach((option, index) => {
+            option.setAttribute('aria-selected', index === activeComplainantSuggestion ? 'true' : 'false');
+        });
+        complainantSearch.setAttribute('aria-activedescendant', options[activeComplainantSuggestion].id);
+    });
+    complainantSearch?.addEventListener('blur', () => window.setTimeout(closeComplainantSuggestions, 120));
+
+    if (complainantSearch && complainantId?.value && complainantHint) {
+        const selected = complainantChoices.find((resident) => String(resident.id) === complainantId.value);
+        if (selected) {
+            complainantHint.textContent = 'Linked resident · ' + (selected.label.match(/\(([^)]+)\)$/)?.[1] || '');
+        }
+    }
+
     const complaineeSearch = document.getElementById('complainee_search');
     const complaineeId = document.getElementById('complainee_resident_id');
     const suggestions = document.getElementById('complainee-suggestions');
