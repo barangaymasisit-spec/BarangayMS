@@ -697,31 +697,32 @@ $activeFilters = [
                                     <td><span class="certificate-status-badge <?php echo h(certificateStatusClass((string)$row['status'])); ?>"><?php echo h($row['status']); ?></span></td>
 
                                     <td>
-                                        <div class="certificate-actions">
-                                            <details class="certificate-actions-menu">
-                                                <summary aria-label="Actions for certificate request <?php echo (int)$row['id']; ?>"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></summary>
-                                                <div class="certificate-actions-menu__items">
-                                                    <button type="button" class="certificate-details-trigger" data-certificate-id="<?php echo (int)$row['id']; ?>"><i class="fa-regular fa-file-lines" aria-hidden="true"></i> View Details</button>
-                                                    <a href="<?php echo h(certificateGeneratorPage($row['certificate_type']) . '?' . http_build_query(['id' => (int)$row['id'], 'type' => strtolower(str_replace(' ', '_', $row['certificate_type']))])); ?>" target="_blank" rel="noopener">
-                                                        <i class="fa-solid fa-print" aria-hidden="true"></i> Generate / Print
-                                                    </a>
-                                                    <?php if ($certificateView === 'archived'): ?>
-                                                        <form method="post" data-certificate-action-form>
-                                                            <?php echo csrfField(); ?>
-                                                            <input type="hidden" name="action" value="restore_request">
-                                                            <input type="hidden" name="certificate_id" value="<?php echo (int)$row['id']; ?>">
-                                                            <button type="submit"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Restore Request</button>
-                                                        </form>
-                                                    <?php elseif (in_array($row['status'], $archivableStatuses, true)): ?>
-                                                        <form method="post" data-certificate-action-form>
-                                                            <?php echo csrfField(); ?>
-                                                            <input type="hidden" name="action" value="archive_request">
-                                                            <input type="hidden" name="certificate_id" value="<?php echo (int)$row['id']; ?>">
-                                                            <button type="submit" class="is-danger"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive Request</button>
-                                                        </form>
-                                                    <?php endif; ?>
-                                                </div>
-                                            </details>
+                                        <div class="certificate-actions" aria-label="Actions for certificate request <?php echo (int)$row['id']; ?>">
+                                            <button type="button" class="certificate-details-trigger" data-certificate-id="<?php echo (int)$row['id']; ?>">
+                                                <i class="fa-regular fa-eye" aria-hidden="true"></i> View
+                                            </button>
+                                            <a class="certificate-action-link" href="<?php echo h(certificateGeneratorPage($row['certificate_type']) . '?' . http_build_query(['id' => (int)$row['id'], 'type' => strtolower(str_replace(' ', '_', $row['certificate_type']))])); ?>" target="_blank" rel="noopener">
+                                                <i class="fa-solid fa-print" aria-hidden="true"></i> Print
+                                            </a>
+                                            <?php if ($certificateView === 'archived'): ?>
+                                                <form method="post" data-certificate-action-form>
+                                                    <?php echo csrfField(); ?>
+                                                    <input type="hidden" name="action" value="restore_request">
+                                                    <input type="hidden" name="certificate_id" value="<?php echo (int)$row['id']; ?>">
+                                                    <button type="submit" class="certificate-action-button">
+                                                        <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Restore
+                                                    </button>
+                                                </form>
+                                            <?php elseif (in_array($row['status'], $archivableStatuses, true)): ?>
+                                                <form method="post" data-certificate-action-form>
+                                                    <?php echo csrfField(); ?>
+                                                    <input type="hidden" name="action" value="archive_request">
+                                                    <input type="hidden" name="certificate_id" value="<?php echo (int)$row['id']; ?>">
+                                                    <button type="submit" class="certificate-action-button is-danger">
+                                                        <i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive
+                                                    </button>
+                                                </form>
+                                            <?php endif; ?>
                                         </div>
                                     </td>
 
@@ -963,7 +964,6 @@ $activeFilters = [
             if (trigger) {
                 event.preventDefault();
                 openCertificateDetails(trigger.dataset.certificateId);
-                trigger.closest('.certificate-actions-menu')?.removeAttribute('open');
             }
             if (event.target.closest('[data-close-certificate-dialog]')) {
                 detailsDialog.close();

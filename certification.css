@@ -1277,22 +1277,23 @@ a.btn-delete{
 
 .certificate-actions{
     display:flex;
-    min-width:120px;
+    min-width:270px;
     align-items:center;
-    gap:8px;
+    gap:6px;
 }
 
 .certificate-details-trigger{
     display:inline-flex;
     align-items:center;
-    gap:7px;
-    padding:8px 11px;
+    justify-content:center;
+    gap:6px;
+    padding:7px 9px;
     border:1px solid #dce7f5;
     border-radius:9px;
     background:#f7faff;
     color:#0B4A9E;
     font:inherit;
-    font-size:12px;
+    font-size:11px;
     font-weight:600;
     white-space:nowrap;
     cursor:pointer;
@@ -1302,64 +1303,30 @@ a.btn-delete{
     background:#eaf2ff;
 }
 
-.certificate-actions-menu{
-    position:relative;
-}
-
-.certificate-actions-menu summary{
-    display:grid;
-    width:36px;
-    height:36px;
-    place-items:center;
+.certificate-action-link,
+.certificate-action-button{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    padding:7px 9px;
     border:1px solid #dce3ec;
     border-radius:9px;
     background:#fff;
-    color:#52657b;
-    cursor:pointer;
-    list-style:none;
-}
-
-.certificate-actions-menu summary::-webkit-details-marker{display:none}
-.certificate-actions-menu summary::marker{content:""}
-.certificate-actions-menu[open] summary{border-color:#b8cce5;color:#0B4A9E}
-
-.certificate-actions-menu__items{
-    position:absolute;
-    z-index:15;
-    top:calc(100% + 6px);
-    right:0;
-    display:grid;
-    min-width:190px;
-    gap:2px;
-    padding:6px;
-    border:1px solid #e1e8f0;
-    border-radius:11px;
-    background:#fff;
-    box-shadow:0 12px 28px rgba(20,48,83,.16);
-}
-
-.certificate-actions-menu__items a,
-.certificate-actions-menu__items button{
-    display:flex;
-    width:100%;
-    align-items:center;
-    gap:9px;
-    padding:9px 10px;
-    border:0;
-    border-radius:7px;
-    background:transparent;
-    color:#31445b;
+    color:#40536a;
     font:inherit;
-    font-size:12px;
-    text-align:left;
+    font-size:11px;
+    font-weight:600;
+    white-space:nowrap;
     text-decoration:none;
     cursor:pointer;
 }
 
-.certificate-actions-menu__items a:hover,
-.certificate-actions-menu__items button:hover{background:#f1f6fc;color:#0B4A9E}
-.certificate-actions-menu__items button.is-danger{color:#b42318}
-.certificate-actions-menu__items button.is-danger:hover{background:#fff0ef;color:#a32d27}
+.certificate-action-link:hover,
+.certificate-action-button:hover{border-color:#b8cce5;background:#f1f6fc;color:#0B4A9E}
+.certificate-action-button.is-danger{border-color:#f1d2cf;color:#b42318}
+.certificate-action-button.is-danger:hover{border-color:#e5aaa5;background:#fff0ef;color:#a32d27}
+.certificate-actions form{margin:0}
 
 .certificate-details-dialog{
     position:fixed;
