@@ -345,6 +345,19 @@ if (!$record) {
                                 $familyHead = trim((string)($member['household_head'] ?? '')) ?: 'Family group not specified';
                                 $families[$familyHead][] = $member;
                             }
+                            $householdHeadName = trim((string)($record['household_head'] ?? ''));
+                            uksort($families, static function (string $first, string $second) use ($householdHeadName): int {
+                                if ($first === $second) {
+                                    return 0;
+                                }
+                                if ($first === $householdHeadName) {
+                                    return -1;
+                                }
+                                if ($second === $householdHeadName) {
+                                    return 1;
+                                }
+                                return strcasecmp($first, $second);
+                            });
                             ?>
                             <?php foreach ($families as $familyHead => $familyMembers): ?>
                                 <?php

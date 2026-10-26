@@ -71,6 +71,19 @@ if ($selectedHouseholdId > 0) {
             $familyHead = trim((string)($member['household_head'] ?? '')) ?: 'Family group not specified';
             $selectedFamilies[$familyHead][] = $member;
         }
+        $householdHeadName = trim((string)($selectedHousehold['household_head'] ?? ''));
+        uksort($selectedFamilies, static function (string $first, string $second) use ($householdHeadName): int {
+            if ($first === $second) {
+                return 0;
+            }
+            if ($first === $householdHeadName) {
+                return -1;
+            }
+            if ($second === $householdHeadName) {
+                return 1;
+            }
+            return strcasecmp($first, $second);
+        });
     }
 }
 
