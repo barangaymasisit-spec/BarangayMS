@@ -45,6 +45,7 @@ $isNew = !$certificate;
 $residents = $isResident
     ? $conn->query('SELECT id, resident_number, first_name, middle_name, last_name, suffix FROM residents WHERE id = ' . (int)$currentResident['id'])
     : $conn->query('SELECT id, resident_number, first_name, middle_name, last_name, suffix FROM residents ORDER BY last_name ASC, first_name ASC');
+$residentOptions = $residents->fetch_all(MYSQLI_ASSOC);
 
 $statusOptions = ['Pending', 'Approved', 'Released', 'Rejected'];
 
@@ -109,11 +110,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $approvedDate = $values['approved_date'] !== '' ? $values['approved_date'] : null;
     $requestedByUserId = (int)($_SESSION['user_id'] ?? 0);
     $requesterRelationship = $values['requester_relationship'] !== '' ? $values['requester_relationship'] : null;
+    $residentExists = false;
+    if (!$isResident && $residentId > 0) {
+        $residentStmt = $conn->prepare('SELECT id FROM residents WHERE id = ?');
+        $residentStmt->bind_param('i', $residentId);
+        $residentStmt->execute();
+        $residentExists = (bool)$residentStmt->get_result()->fetch_assoc();
+        $residentStmt->close();
+    }
 
     if ($error !== '') {
         // Keep the form open with the validation message.
     } elseif ($residentId <= 0) {
         $error = 'Please choose the resident requesting the certificate.';
+    } elseif (!$isResident && !$residentExists) {
+        $error = 'Choose a resident from the search suggestions.';
     } elseif ($values['certificate_type'] === '') {
         $error = 'Please choose a certificate type.';
     } elseif (!in_array($values['status'], $statusOptions, true)) {
@@ -145,6 +156,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $showForm = $isNew;
 $title = $isNew ? 'New Certificate Request' : 'Certificate Request Details';
 $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate of Indigency', 'Business Clearance', 'Good Moral'];
+$selectedResidentLabel = '';
+foreach ($residentOptions as $residentOption) {
+    if ((int)$residentOption['id'] === (int)$values['resident_id']) {
+        $selectedResidentLabel = trim($residentOption['last_name'] . ', ' . $residentOption['first_name'] . ' ' . $residentOption['middle_name'] . ' ' . $residentOption['suffix'])
+            . ' (' . $residentOption['resident_number'] . ')';
+        break;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -169,7 +188,7 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
                 <div class="notice notice-error" role="alert"><?php echo h($error); ?></div>
             <?php endif; ?>
 
-            <?php if ($showForm && $residents->num_rows === 0): ?>
+            <?php if ($showForm && count($residentOptions) === 0): ?>
 
                 <h3>No residents on file</h3>
                 <p>A certificate request has to be linked to a resident. Please add a resident record first.</p>
@@ -238,15 +257,29 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
                         </div>
                         <?php else: ?>
                         <div class="form-group">
-                            <label for="resident_id">Resident *</label>
-                            <select id="resident_id" name="resident_id" required>
-                                <option value="">Select resident</option>
-                                <?php while ($resident = $residents->fetch_assoc()): ?>
-                                    <option value="<?php echo (int)$resident['id']; ?>"<?php echo (int)$values['resident_id'] === (int)$resident['id'] ? ' selected' : ''; ?>>
-                                        <?php echo h(trim($resident['last_name'] . ', ' . $resident['first_name'] . ' ' . $resident['middle_name'] . ' ' . $resident['suffix']) . ' (' . $resident['resident_number'] . ')'); ?>
-                                    </option>
-                                <?php endwhile; ?>
-                            </select>
+                            <label for="resident_search">Resident *</label>
+                            <div class="resident-autocomplete" id="residentAutocomplete">
+                                <input type="search" id="resident_search" name="resident_search" value="<?php echo h($_POST['resident_search'] ?? $selectedResidentLabel); ?>" placeholder="Search by resident name or number" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="residentSuggestions" required>
+                                <input type="hidden" id="resident_id" name="resident_id" value="<?php echo (int)$values['resident_id']; ?>">
+                                <div class="resident-autocomplete__suggestions" id="residentSuggestions" role="listbox" aria-label="Matching residents" hidden>
+                                    <?php foreach ($residentOptions as $residentOption): ?>
+                                        <?php
+                                        $residentLabel = trim($residentOption['last_name'] . ', ' . $residentOption['first_name'] . ' ' . $residentOption['middle_name'] . ' ' . $residentOption['suffix'])
+                                            . ' (' . $residentOption['resident_number'] . ')';
+                                        $residentSearchValue = strtolower(trim(
+                                            $residentOption['first_name'] . ' ' . $residentOption['middle_name'] . ' ' .
+                                            $residentOption['last_name'] . ' ' . $residentOption['suffix'] . ' ' .
+                                            $residentOption['resident_number'] . ' ' . $residentLabel
+                                        ));
+                                        ?>
+                                        <button type="button" class="resident-autocomplete__option" id="resident-option-<?php echo (int)$residentOption['id']; ?>" tabindex="-1" role="option" aria-selected="false" data-resident-id="<?php echo (int)$residentOption['id']; ?>" data-label="<?php echo h($residentLabel); ?>" data-search="<?php echo h($residentSearchValue); ?>">
+                                            <span><?php echo h(trim($residentOption['first_name'] . ' ' . $residentOption['middle_name'] . ' ' . $residentOption['last_name'] . ' ' . $residentOption['suffix'])); ?></span>
+                                            <small><?php echo h($residentOption['resident_number']); ?></small>
+                                        </button>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <small class="resident-autocomplete__hint">Type a name or resident number, then select a match.</small>
                         </div>
                         <?php endif; ?>
 
@@ -345,6 +378,103 @@ $typeOptions = ['Barangay Clearance', 'Certificate of Residency', 'Certificate o
     </main>
 </div>
 <?php renderFooterScripts(false); ?>
+<?php if (!$isResident && $showForm): ?>
+<script>
+    const residentAutocomplete = document.getElementById('residentAutocomplete');
+    const residentSearchInput = document.getElementById('resident_search');
+    const residentIdInput = document.getElementById('resident_id');
+    const residentSuggestions = document.getElementById('residentSuggestions');
+    const residentOptions = Array.from(residentSuggestions.querySelectorAll('[role="option"]'));
+    let activeResidentOption = -1;
+
+    function closeResidentSuggestions() {
+        residentSuggestions.hidden = true;
+        residentSearchInput.setAttribute('aria-expanded', 'false');
+        residentSearchInput.removeAttribute('aria-activedescendant');
+        residentOptions.forEach((option) => {
+            option.classList.remove('is-active');
+            option.setAttribute('aria-selected', 'false');
+        });
+        activeResidentOption = -1;
+    }
+
+    function updateResidentSuggestions() {
+        const query = residentSearchInput.value.trim().toLowerCase();
+        residentIdInput.value = '';
+        residentSearchInput.setCustomValidity('');
+        let visibleCount = 0;
+
+        residentOptions.forEach((option) => {
+            const matches = query !== '' && option.dataset.search.includes(query);
+            option.hidden = !matches;
+            if (matches) visibleCount += 1;
+        });
+
+        if (visibleCount > 0) {
+            residentSuggestions.hidden = false;
+            residentSearchInput.setAttribute('aria-expanded', 'true');
+        } else {
+            closeResidentSuggestions();
+        }
+        activeResidentOption = -1;
+    }
+
+    function selectResident(option) {
+        residentSearchInput.value = option.dataset.label;
+        residentIdInput.value = option.dataset.residentId;
+        residentSearchInput.setCustomValidity('');
+        closeResidentSuggestions();
+    }
+
+    function setActiveResidentOption(index) {
+        const visibleOptions = residentOptions.filter((option) => !option.hidden);
+        if (visibleOptions.length === 0) return;
+        activeResidentOption = (index + visibleOptions.length) % visibleOptions.length;
+        residentOptions.forEach((option) => {
+            option.classList.remove('is-active');
+            option.setAttribute('aria-selected', 'false');
+        });
+        const activeOption = visibleOptions[activeResidentOption];
+        activeOption.classList.add('is-active');
+        activeOption.setAttribute('aria-selected', 'true');
+        residentSearchInput.setAttribute('aria-activedescendant', activeOption.id);
+        activeOption.scrollIntoView({block: 'nearest'});
+    }
+
+    residentSearchInput.addEventListener('input', updateResidentSuggestions);
+    residentSearchInput.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            if (residentSuggestions.hidden) updateResidentSuggestions();
+            setActiveResidentOption(activeResidentOption + 1);
+        } else if (event.key === 'ArrowUp' && !residentSuggestions.hidden) {
+            event.preventDefault();
+            setActiveResidentOption(activeResidentOption - 1);
+        } else if (event.key === 'Enter' && !residentSuggestions.hidden) {
+            const visibleOptions = residentOptions.filter((option) => !option.hidden);
+            if (visibleOptions.length > 0) {
+                event.preventDefault();
+                selectResident(visibleOptions[Math.max(activeResidentOption, 0)]);
+            }
+        } else if (event.key === 'Escape') {
+            closeResidentSuggestions();
+        }
+    });
+    residentOptions.forEach((option) => {
+        option.addEventListener('click', () => selectResident(option));
+    });
+    document.addEventListener('click', (event) => {
+        if (!residentAutocomplete.contains(event.target)) closeResidentSuggestions();
+    });
+    residentSearchInput.form.addEventListener('submit', (event) => {
+        if (residentIdInput.value === '') {
+            event.preventDefault();
+            residentSearchInput.setCustomValidity('Choose a resident from the search suggestions.');
+            residentSearchInput.reportValidity();
+        }
+    });
+</script>
+<?php endif; ?>
 <?php if ($isResident && $showForm): ?>
 <script>
     const requestForInputs = document.querySelectorAll('input[name="request_for"]');

@@ -863,6 +863,66 @@ hr{
     letter-spacing:.14em;
 }
 
+.resident-autocomplete{
+    position:relative;
+}
+
+.resident-autocomplete__suggestions{
+    position:absolute;
+    z-index:20;
+    top:calc(100% + 6px);
+    right:0;
+    left:0;
+    max-height:280px;
+    overflow-y:auto;
+    padding:6px;
+    border:1px solid #d7e2f1;
+    border-radius:12px;
+    background:#fff;
+    box-shadow:0 14px 32px rgba(20,48,83,.16);
+}
+
+.resident-autocomplete__suggestions[hidden],
+.resident-autocomplete__option[hidden]{
+    display:none;
+}
+
+.resident-autocomplete__option{
+    display:flex;
+    width:100%;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    padding:11px 12px;
+    border:0;
+    border-radius:8px;
+    background:transparent;
+    color:#25374d;
+    text-align:left;
+    cursor:pointer;
+}
+
+.resident-autocomplete__option:hover,
+.resident-autocomplete__option.is-active{
+    background:#edf4ff;
+    color:#0B4A9E;
+}
+
+.resident-autocomplete__option span{
+    min-width:0;
+    overflow:hidden;
+    font-size:14px;
+    font-weight:500;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
+.resident-autocomplete__option small{
+    flex:none;
+    color:#718096;
+    font-size:12px;
+}
+
 .official-status-tab{
     display:inline-flex;
     min-height:44px;

@@ -1049,10 +1049,27 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                         <input type="hidden" name="return_section" value="<?php echo h($_POST['return_section'] ?? $_GET['return_section'] ?? ''); ?>">
                         <?php if ($isNewTermMode): ?><input type="hidden" name="new_term" value="1"><?php endif; ?>
                         <div class="col-md-6">
-                            <label class="form-label" for="officialResidentId">Select Resident <span class="text-danger">*</span></label>
-                            <input class="form-control mb-2" id="officialResidentSearch" type="search" aria-label="Search residents by name or resident ID" placeholder="Search by name or resident ID" autocomplete="off">
-                            <select class="form-select" id="officialResidentId" name="resident_id" required>
-                                <option value="">Select a registered resident</option>
+                            <?php
+                            $selectedResidentId = (int)($editOfficial['resident_id'] ?? $_POST['resident_id'] ?? 0);
+                            $selectedResidentLabel = '';
+                            foreach ($personnelResidents as $residentOption) {
+                                if ((int)$residentOption['id'] === $selectedResidentId) {
+                                    $selectedResidentName = trim(implode(' ', array_filter([
+                                        $residentOption['first_name'],
+                                        $residentOption['middle_name'],
+                                        $residentOption['last_name'],
+                                        $residentOption['suffix'],
+                                    ])));
+                                    $selectedResidentLabel = $selectedResidentName . ' (' . $residentOption['resident_number'] . ')';
+                                    break;
+                                }
+                            }
+                            ?>
+                            <label class="form-label" for="officialResidentSearch">Select Resident <span class="text-danger">*</span></label>
+                            <div class="resident-autocomplete" id="officialResidentAutocomplete">
+                                <input class="form-control" id="officialResidentSearch" type="search" name="resident_search" value="<?php echo h($_POST['resident_search'] ?? $selectedResidentLabel); ?>" role="combobox" aria-label="Search residents by name or resident ID" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="officialResidentSuggestions" placeholder="Search by resident name or ID" autocomplete="off" required>
+                                <input type="hidden" id="officialResidentId" name="resident_id" value="<?php echo $selectedResidentId; ?>">
+                                <div class="resident-autocomplete__suggestions" id="officialResidentSuggestions" role="listbox" aria-label="Matching residents" hidden>
                                 <?php foreach ($personnelResidents as $residentOption): ?>
                                     <?php
                                     $residentFullName = trim(implode(' ', array_filter([
@@ -1066,21 +1083,23 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                                         trim((string)($residentOption['street'] ?? '')),
                                         trim((string)($residentOption['purok'] ?? '')),
                                     ]));
-                                    $residentOptionSearch = strtolower($residentFullName . ' ' . $residentOption['resident_number']);
+                                    $residentOptionSearch = strtolower($residentFullName . ' ' . $residentOption['last_name'] . ', ' . $residentOption['first_name'] . ' ' . $residentOption['middle_name'] . ' ' . $residentOption['suffix'] . ' ' . $residentOption['resident_number']);
                                     ?>
-                                    <option value="<?php echo (int)$residentOption['id']; ?>"
+                                    <button type="button" class="resident-autocomplete__option" id="official-resident-option-<?php echo (int)$residentOption['id']; ?>" tabindex="-1" role="option" aria-selected="false"
+                                            data-resident-id="<?php echo (int)$residentOption['id']; ?>"
                                             data-search="<?php echo h($residentOptionSearch); ?>"
                                             data-full-name="<?php echo h($residentFullName); ?>"
                                             data-resident-number="<?php echo h($residentOption['resident_number']); ?>"
                                             data-email="<?php echo h($residentOption['email'] ?? ''); ?>"
                                             data-address="<?php echo h($residentAddress); ?>"
                                             data-status="<?php echo h($residentOption['resident_status'] ?? 'Active'); ?>"
-                                            data-photo="<?php echo h($residentOption['photo_path'] ?? ''); ?>"
-                                        <?php echo (int)($editOfficial['resident_id'] ?? $_POST['resident_id'] ?? 0) === (int)$residentOption['id'] ? ' selected' : ''; ?>>
-                                        <?php echo h($residentFullName . ' (' . $residentOption['resident_number'] . ')'); ?>
-                                    </option>
+                                            data-photo="<?php echo h($residentOption['photo_path'] ?? ''); ?>">
+                                        <span><?php echo h($residentFullName); ?></span>
+                                        <small><?php echo h($residentOption['resident_number']); ?></small>
+                                    </button>
                                 <?php endforeach; ?>
-                            </select>
+                                </div>
+                            </div>
                             <small class="text-muted">Choose a registered resident. Name and profile photo will come from this record.</small>
                             <div class="mt-2"><span class="text-muted">Resident not found?</span> <a href="resident_form.php">Register New Resident</a></div>
                         </div>
@@ -1322,11 +1341,14 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     document.documentElement.classList.add('personnel-scroll-stable');
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
-    const residentSelect = document.getElementById('officialResidentId');
     const residentSearch = document.getElementById('officialResidentSearch');
+    const residentId = document.getElementById('officialResidentId');
+    const residentAutocomplete = document.getElementById('officialResidentAutocomplete');
+    const residentSuggestions = document.getElementById('officialResidentSuggestions');
+    const residentOptions = residentSuggestions ? Array.from(residentSuggestions.querySelectorAll('[role="option"]')) : [];
     const residentCard = document.getElementById('selectedResidentCard');
     const updateResidentPreview = (option) => {
-        if (!option || !option.value) {
+        if (!option || !option.dataset.residentId) {
             residentCard.hidden = true;
             return;
         }
@@ -1344,18 +1366,96 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         };
     };
 
-    if (residentSelect && residentSearch && residentCard) {
-        updateResidentPreview(residentSelect.selectedOptions[0]);
-        residentSearch.addEventListener('input', () => {
-            const searchTerm = residentSearch.value.trim().toLowerCase();
-            Array.from(residentSelect.options).forEach((option) => {
-                option.hidden = option.value !== '' && !option.selected && !option.dataset.search.includes(searchTerm);
-            });
+    const closeResidentSuggestions = () => {
+        if (!residentSuggestions) return;
+        residentSuggestions.hidden = true;
+        residentSearch.setAttribute('aria-expanded', 'false');
+        residentSearch.removeAttribute('aria-activedescendant');
+        residentOptions.forEach((option) => {
+            option.classList.remove('is-active');
+            option.setAttribute('aria-selected', 'false');
         });
-        residentSelect.addEventListener('change', () => {
-            const selectedResident = residentSelect.selectedOptions[0];
-            updateResidentPreview(selectedResident);
-            document.getElementById('officialEmail').value = selectedResident?.dataset.email || '';
+        activeResidentOption = -1;
+    };
+
+    let activeResidentOption = -1;
+    const updateResidentSuggestions = () => {
+        const searchTerm = residentSearch.value.trim().toLowerCase();
+        residentId.value = '';
+        residentSearch.setCustomValidity('');
+        let visibleCount = 0;
+        residentOptions.forEach((option) => {
+            const matches = searchTerm !== '' && option.dataset.search.includes(searchTerm);
+            option.hidden = !matches;
+            if (matches) visibleCount += 1;
+        });
+        if (visibleCount > 0) {
+            residentSuggestions.hidden = false;
+            residentSearch.setAttribute('aria-expanded', 'true');
+        } else {
+            closeResidentSuggestions();
+        }
+        activeResidentOption = -1;
+        updateResidentPreview(null);
+    };
+
+    const selectResident = (option) => {
+        residentSearch.value = option.dataset.fullName + ' (' + option.dataset.residentNumber + ')';
+        residentId.value = option.dataset.residentId;
+        residentSearch.setCustomValidity('');
+        updateResidentPreview(option);
+        document.getElementById('officialEmail').value = option.dataset.email || '';
+        closeResidentSuggestions();
+    };
+
+    const setActiveResidentOption = (index) => {
+        const visibleOptions = residentOptions.filter((option) => !option.hidden);
+        if (visibleOptions.length === 0) return;
+        activeResidentOption = (index + visibleOptions.length) % visibleOptions.length;
+        residentOptions.forEach((option) => {
+            option.classList.remove('is-active');
+            option.setAttribute('aria-selected', 'false');
+        });
+        const activeOption = visibleOptions[activeResidentOption];
+        activeOption.classList.add('is-active');
+        activeOption.setAttribute('aria-selected', 'true');
+        residentSearch.setAttribute('aria-activedescendant', activeOption.id);
+        activeOption.scrollIntoView({block: 'nearest'});
+    };
+
+    if (residentSearch && residentId && residentAutocomplete && residentCard) {
+        updateResidentPreview(residentOptions.find((option) => option.dataset.residentId === residentId.value));
+        residentSearch.addEventListener('input', updateResidentSuggestions);
+        residentSearch.addEventListener('keydown', (event) => {
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                if (residentSuggestions.hidden) updateResidentSuggestions();
+                setActiveResidentOption(activeResidentOption + 1);
+            } else if (event.key === 'ArrowUp' && !residentSuggestions.hidden) {
+                event.preventDefault();
+                setActiveResidentOption(activeResidentOption - 1);
+            } else if (event.key === 'Enter' && !residentSuggestions.hidden) {
+                const visibleOptions = residentOptions.filter((option) => !option.hidden);
+                if (visibleOptions.length > 0) {
+                    event.preventDefault();
+                    selectResident(visibleOptions[Math.max(activeResidentOption, 0)]);
+                }
+            } else if (event.key === 'Escape') {
+                closeResidentSuggestions();
+            }
+        });
+        residentOptions.forEach((option) => {
+            option.addEventListener('click', () => selectResident(option));
+        });
+        document.addEventListener('click', (event) => {
+            if (!residentAutocomplete.contains(event.target)) closeResidentSuggestions();
+        });
+        residentSearch.form.addEventListener('submit', (event) => {
+            if (residentId.value === '') {
+                event.preventDefault();
+                residentSearch.setCustomValidity('Choose a resident from the search suggestions.');
+                residentSearch.reportValidity();
+            }
         });
     }
 
