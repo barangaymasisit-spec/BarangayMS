@@ -1093,6 +1093,17 @@ html.personnel-scroll-stable{
     font-weight:600;
 }
 
+.personnel-archive-dialog__validation{
+    margin-top:8px !important;
+    color:#b42318 !important;
+    font-size:12px !important;
+    font-weight:600;
+}
+
+.personnel-archive-dialog__validation[hidden]{
+    display:none;
+}
+
 .personnel-archive-reason-field{
     margin-top:18px;
     text-align:left;

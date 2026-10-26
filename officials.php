@@ -128,7 +128,8 @@ function personnelArchiveForm(int $officialId, string $role, string $personName,
         . '<input type="hidden" name="form_type" value="archive_official">'
         . '<input type="hidden" name="official_id" value="' . $officialId . '">'
         . '<input type="hidden" name="person_name" value="' . h(trim($personName)) . '">'
-        . '<input type="hidden" name="role" value="' . h($role) . '">';
+        . '<input type="hidden" name="role" value="' . h($role) . '">'
+        . '<input type="hidden" name="archive_reason" value="">';
     foreach ($pageState as $key => $value) {
         $fields .= '<input type="hidden" name="' . h($key) . '" value="' . h((string)$value) . '">';
     }
@@ -519,6 +520,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'delete_official') {
     $officialError = 'Deleting personnel accounts is disabled. Archive the account to free its personnel slot.';
 }
+$isArchiveAjax = $_SERVER['REQUEST_METHOD'] === 'POST'
+    && ($_POST['form_type'] ?? '') === 'archive_official'
+    && strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'archive_official') {
     $officialId = filter_var($_POST['official_id'] ?? null, FILTER_VALIDATE_INT);
     $officialRole = (string)($_POST['role'] ?? '');
@@ -545,7 +549,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'ar
                 if ($officialRole === 'staff') {
                     $returnState['official_view'] = 'archived';
                 }
-                header('Location: ' . personnelReturnUrl($returnState, 'archived'));
+                $archiveRedirect = personnelReturnUrl($returnState, 'archived');
+                if ($isArchiveAjax) {
+                    header('Content-Type: application/json; charset=utf-8');
+                    echo json_encode(['success' => true, 'redirect' => $archiveRedirect]);
+                    exit;
+                }
+                header('Location: ' . $archiveRedirect);
                 exit;
             }
             $officialError = 'The personnel account could not be archived. It may already be archived or no longer exist.';
@@ -554,6 +564,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'ar
             $officialError = 'The personnel account could not be archived. Please try again.';
         }
     }
+}
+if ($isArchiveAjax && $officialError !== '') {
+    http_response_code(422);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['success' => false, 'message' => $officialError]);
+    exit;
 }
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'restore_official') {
     $officialId = filter_var($_POST['official_id'] ?? null, FILTER_VALIDATE_INT);
@@ -1310,6 +1326,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     <p class="personnel-archive-dialog__person" id="personnelActionName"><?php echo h($archiveDialogPersonName); ?></p>
     <p id="personnelActionDescription">This account will be moved to Archived Officials. Its personnel slot will be available again.</p>
     <?php if ($archiveDialogShouldReopen): ?><p class="personnel-archive-dialog__validation" role="alert">Enter an archive reason of 1 to 500 characters.</p><?php endif; ?>
+    <p class="personnel-archive-dialog__validation" id="personnelActionError" role="alert" hidden></p>
     <div class="personnel-archive-reason-field" id="personnelArchiveReasonField">
         <label for="personnelArchiveReason">Reason for archiving <span aria-hidden="true">*</span></label>
         <textarea id="personnelArchiveReason" name="archive_reason" maxlength="500" rows="3" placeholder="Briefly explain why this account is being archived"><?php echo h($archiveReasonValue); ?></textarea>
@@ -1334,6 +1351,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     const icon = document.getElementById('personnelActionIcon');
     const archiveReasonField = document.getElementById('personnelArchiveReasonField');
     const archiveReason = document.getElementById('personnelArchiveReason');
+    const archiveError = document.getElementById('personnelActionError');
     const cancelButton = document.getElementById('cancelPersonnelAction');
     const confirmButton = document.getElementById('confirmPersonnelAction');
     let pendingForm = null;
@@ -1471,6 +1489,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         archiveReason.required = false;
         archiveReason.setAttribute('aria-required', restoring ? 'false' : 'true');
         archiveReason.value = '';
+        archiveError.hidden = true;
+        archiveError.textContent = '';
         personName.textContent = form.dataset.personName || 'Selected personnel account';
         title.textContent = restoring
             ? (isOfficial ? 'Restore this official?' : 'Restore this personnel?')
@@ -1565,28 +1585,55 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     dialog.addEventListener('click', (event) => {
         if (event.target === dialog) dialog.close();
     });
-    confirmButton.addEventListener('click', () => {
+    confirmButton.addEventListener('click', async () => {
         if (!pendingForm) return;
         if (pendingForm.dataset.action === 'archive') {
             const reason = archiveReason.value.trim();
             if (reason === '') {
-                archiveReason.focus();
+                archiveError.textContent = 'Enter an archive reason of 1 to 500 characters.';
+                archiveError.hidden = false;
+                archiveReason.focus({preventScroll: true});
                 return;
             }
-            let reasonInput = pendingForm.querySelector('input[name="archive_reason"]');
-            if (!reasonInput) {
-                reasonInput = document.createElement('input');
-                reasonInput.type = 'hidden';
-                reasonInput.name = 'archive_reason';
-                pendingForm.appendChild(reasonInput);
+            if (reason.length > 500) {
+                archiveError.textContent = 'The archive reason must be 500 characters or fewer.';
+                archiveError.hidden = false;
+                archiveReason.focus({preventScroll: true});
+                return;
             }
-            reasonInput.value = reason;
+            pendingForm.querySelector('input[name="archive_reason"]').value = reason;
+            confirmButton.disabled = true;
+            archiveError.hidden = true;
+            try {
+                const response = await fetch(pendingForm.action, {
+                    method: 'POST',
+                    body: new FormData(pendingForm),
+                    credentials: 'same-origin',
+                    headers: {'X-Requested-With': 'XMLHttpRequest'}
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    archiveError.textContent = result.message || 'The personnel account could not be archived. Please try again.';
+                    archiveError.hidden = false;
+                    return;
+                }
+                window.location.assign(result.redirect);
+            } catch (error) {
+                console.error('Could not submit the archive request:', error);
+                archiveError.textContent = 'Could not reach the server. Check your connection and try again.';
+                archiveError.hidden = false;
+            } finally {
+                if (dialog.open) confirmButton.disabled = false;
+            }
+            return;
         }
         confirmButton.disabled = true;
         pendingForm.submit();
     });
     dialog.addEventListener('close', () => {
         archiveReason.value = '';
+        archiveError.hidden = true;
+        archiveError.textContent = '';
         pendingForm = null;
         confirmButton.disabled = false;
     });
