@@ -33,7 +33,11 @@ $stmt->execute();
 $complaints = $stmt->get_result();
 $stmt->close();
 
-$activeAlerts = $conn->query("SELECT category, description, created_at FROM emergency_alerts WHERE status = 'Active' ORDER BY created_at DESC LIMIT 5");
+$residentPurok = trim((string)($resident['purok'] ?? ''));
+$activeAlertStmt = $conn->prepare("SELECT category, severity, affected_area, location, broadcast_message, broadcasted_at FROM emergency_alerts WHERE broadcast_status = 'Sent' AND incident_status IN ('Verified', 'Responding') AND archived_at IS NULL AND (affected_area = 'Entire Barangay' OR affected_area = ?) ORDER BY broadcasted_at DESC LIMIT 5");
+$activeAlertStmt->bind_param('s', $residentPurok);
+$activeAlertStmt->execute();
+$activeAlerts = $activeAlertStmt->get_result();
 
 $stmt = $conn->prepare('SELECT COUNT(*) FROM appointments WHERE resident_id = ? OR requested_by_user_id = ?');
 $stmt->bind_param('ii', $residentId, $currentUserId);
@@ -135,13 +139,15 @@ $certificates = $stmt->get_result();
                 <div class="alert-list">
                     <?php while ($alert = $activeAlerts->fetch_assoc()): ?>
                         <div class="alert-box">
-                            <strong><?php echo h($alert['category']); ?></strong>
-                            <span><?php echo h($alert['description']); ?></span>
-                            <small><?php echo h(formatDatabaseDateTime($alert['created_at'])); ?></small>
+                            <strong><?php echo h($alert['severity']); ?> · <?php echo h($alert['category']); ?></strong>
+                            <span><?php echo h($alert['affected_area']); ?> · <?php echo h($alert['location']); ?></span>
+                            <span><?php echo h($alert['broadcast_message']); ?></span>
+                            <small><?php echo h(formatDatabaseDateTime($alert['broadcasted_at'])); ?></small>
                         </div>
                     <?php endwhile; ?>
                 </div>
             <?php endif; ?>
+            <?php $activeAlertStmt->close(); ?>
         </section>
 
         <section class="content-section">

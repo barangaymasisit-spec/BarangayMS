@@ -116,7 +116,7 @@ function staffNotifications(mysqli $conn): array {
         ['sql' => "SELECT COUNT(*) FROM appointments WHERE status = 'Pending'", 'text' => 'Pending appointments', 'detail' => 'Review appointment requests', 'href' => 'appointments.php', 'icon' => 'fa-calendar-check'],
         ['sql' => "SELECT COUNT(*) FROM complaints WHERE status = 'Pending'", 'text' => 'Pending complaints', 'detail' => 'Review complaint reports', 'href' => 'complaints.php', 'icon' => 'fa-circle-exclamation'],
         ['sql' => "SELECT COUNT(*) FROM complaints WHERE status = 'Ongoing'", 'text' => 'Ongoing complaints', 'detail' => 'View active complaints', 'href' => 'complaints.php', 'icon' => 'fa-spinner'],
-        ['sql' => "SELECT COUNT(*) FROM emergency_alerts WHERE status = 'Reported'", 'text' => 'Emergency reports to review', 'detail' => 'Broadcast or dismiss resident reports', 'href' => 'emergency.php', 'icon' => 'fa-triangle-exclamation'],
+        ['sql' => "SELECT COUNT(*) FROM emergency_alerts WHERE incident_status = 'Reported' AND archived_at IS NULL", 'text' => 'Emergency reports to review', 'detail' => 'Verify, refer, or dismiss resident reports', 'href' => 'emergency.php', 'icon' => 'fa-triangle-exclamation'],
     ];
     $items = [];
     foreach ($queries as $query) {
@@ -174,8 +174,9 @@ function notificationCount(mysqli $conn): int {
         (SELECT COUNT(*) FROM certificates WHERE (resident_id = ? OR requested_by_user_id = ?) AND status IN ('Approved', 'Released')) +
         (SELECT COUNT(*) FROM appointments WHERE (resident_id = ? OR requested_by_user_id = ?) AND status = 'Approved') +
         (SELECT COUNT(*) FROM complaints WHERE (resident_id = ? OR complainee_resident_id = ?) AND status IN ('Ongoing', 'Resolved')) +
-        (SELECT COUNT(*) FROM emergency_alerts WHERE status = 'Active')");
-    $stmt->bind_param('iiiiii', $residentId, $userId, $residentId, $userId, $residentId, $residentId);
+        (SELECT COUNT(*) FROM emergency_alerts WHERE broadcast_status = 'Sent' AND incident_status IN ('Verified', 'Responding') AND archived_at IS NULL AND (affected_area = 'Entire Barangay' OR affected_area = ?))");
+    $residentPurok = trim((string)($resident['purok'] ?? ''));
+    $stmt->bind_param('iiiiiis', $residentId, $userId, $residentId, $userId, $residentId, $residentId, $residentPurok);
     $stmt->execute();
     $count = (int)$stmt->get_result()->fetch_row()[0];
     $stmt->close();
@@ -215,10 +216,15 @@ function notificationItems(mysqli $conn): array {
         $resident = currentResident($conn);
         if ($resident) {
             $residentId = (int)$resident['id'];
-            $alerts = $conn->query("SELECT category, description FROM emergency_alerts WHERE status = 'Active' ORDER BY created_at DESC LIMIT 5");
+            $residentPurok = trim((string)($resident['purok'] ?? ''));
+            $alertStmt = $conn->prepare("SELECT category, severity, affected_area, location, broadcast_message FROM emergency_alerts WHERE broadcast_status = 'Sent' AND incident_status IN ('Verified', 'Responding') AND archived_at IS NULL AND (affected_area = 'Entire Barangay' OR affected_area = ?) ORDER BY broadcasted_at DESC LIMIT 5");
+            $alertStmt->bind_param('s', $residentPurok);
+            $alertStmt->execute();
+            $alerts = $alertStmt->get_result();
             while ($row = $alerts->fetch_assoc()) {
-                $items[] = ['icon' => 'fa-triangle-exclamation', 'text' => 'Emergency alert: ' . $row['category'], 'detail' => $row['description'], 'href' => 'resident_dashboard.php'];
+                $items[] = ['icon' => 'fa-triangle-exclamation', 'text' => $row['severity'] . ' emergency alert: ' . $row['category'], 'detail' => $row['affected_area'] . ' · ' . $row['location'] . ' · ' . $row['broadcast_message'], 'href' => 'resident_dashboard.php'];
             }
+            $alertStmt->close();
             $userId = (int)($_SESSION['user_id'] ?? 0);
             $stmt = $conn->prepare("SELECT certificate_type, status FROM certificates WHERE (resident_id = ? OR requested_by_user_id = ?) AND status IN ('Approved', 'Released') ORDER BY updated_at DESC LIMIT 5");
             $stmt->bind_param('ii', $residentId, $userId);

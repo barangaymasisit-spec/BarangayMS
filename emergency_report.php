@@ -31,15 +31,45 @@ $categoryOptions = [
     'Tsunami',
     'Storm Surge',
 ];
+$severityOptions = ['Critical', 'High', 'Moderate', 'Advisory'];
+$purokResult = $conn->query("SELECT DISTINCT TRIM(purok) AS purok FROM residents WHERE purok IS NOT NULL AND TRIM(purok) <> '' ORDER BY purok");
+$areaOptions = $purokResult ? array_column($purokResult->fetch_all(MYSQLI_ASSOC), 'purok') : [];
+$incidentAreas = array_values(array_unique(array_merge(['Entire Barangay'], $areaOptions)));
 $category = '';
 $description = '';
+$location = '';
+$affectedArea = '';
+$otherAffectedArea = '';
+$severity = '';
+$incidentDateTime = (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y-m-d\TH:i');
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $category = trim($_POST['category'] ?? '');
     $description = trim($_POST['description'] ?? '');
+    $location = trim($_POST['location'] ?? '');
+    $affectedArea = trim($_POST['affected_area'] ?? '');
+    $selectedArea = $affectedArea;
+    $otherAffectedArea = trim($_POST['other_affected_area'] ?? '');
+    $incidentDateTime = trim($_POST['incident_at'] ?? '');
+    $severity = trim($_POST['severity'] ?? '');
+    $resolvedArea = $selectedArea === 'Other' ? $otherAffectedArea : $selectedArea;
+    $incidentAt = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $incidentDateTime, new DateTimeZone('Asia/Manila'));
+    $validArea = $selectedArea === 'Other'
+        ? $otherAffectedArea !== '' && strlen($otherAffectedArea) <= 150
+        : in_array($selectedArea, $incidentAreas, true);
     if (!in_array($category, $categoryOptions, true)) {
         $error = 'Please choose the type of natural disaster.';
     } elseif ($description === '') {
         $error = 'Please describe the emergency.';
+    } elseif ($location === '' || strlen($location) > 255) {
+        $error = 'Enter the emergency location (up to 255 characters).';
+    } elseif (!$validArea) {
+        $error = 'Choose an affected purok or enter the affected area.';
+    } elseif (strlen($description) > 60000) {
+        $error = 'The emergency description must be 60,000 characters or fewer.';
+    } elseif (!$incidentAt || $incidentAt->format('Y-m-d\TH:i') !== $incidentDateTime) {
+        $error = 'Enter a valid incident date and time.';
+    } elseif (!$resident && !in_array($severity, $severityOptions, true)) {
+        $error = 'Choose an emergency severity level.';
     } elseif ($resident && recentEmergencyReports($conn, (int)$resident['id']) >= 3) {
         // Keeps one resident from flooding the office; real emergencies rarely need more than 3 reports an hour.
         $error = 'You have sent 3 emergency reports in the last hour. Please call the barangay office if you need more help.';
@@ -49,18 +79,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $reportedBy = $resident
             ? trim($resident['first_name'] . ' ' . $resident['last_name'])
             : 'Barangay Office';
-        // The office's own alert goes straight out to residents; a resident's report waits for review.
-        $status = $resident ? 'Reported' : 'Active';
-        $stmt = $conn->prepare('INSERT INTO emergency_alerts (tracking_number, category, description, resident_id, reported_by, status) VALUES (?, ?, ?, ?, ?, ?)');
-        $stmt->bind_param('sssiss', $trackingNumber, $category, $description, $residentId, $reportedBy, $status);
+        $incidentStatus = $resident ? 'Reported' : 'Verified';
+        $broadcastStatus = $resident ? 'Not Sent' : 'Draft';
+        $legacyStatus = $incidentStatus;
+        $severity = $resident ? 'Unassessed' : $severity;
+        $incidentAtUtc = $incidentAt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+        $userId = (int)($_SESSION['user_id'] ?? 0);
+        $stmt = $conn->prepare(
+            'INSERT INTO emergency_alerts
+                (tracking_number, category, description, resident_id, reported_by, status, incident_status, broadcast_status, severity, location, affected_area, incident_at, verified_by_user_id, verified_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN UTC_TIMESTAMP() ELSE NULL END)'
+        );
+        $isOfficeAlert = $resident ? 0 : 1;
+        $verifiedById = $isOfficeAlert ? $userId : null;
+        $stmt->bind_param('sssissssssssii', $trackingNumber, $category, $description, $residentId, $reportedBy, $legacyStatus, $incidentStatus, $broadcastStatus, $severity, $location, $resolvedArea, $incidentAtUtc, $verifiedById, $isOfficeAlert);
         if ($stmt->execute()) {
             $alertId = (int)$stmt->insert_id;
             $stmt->close();
-            logActivity($conn, 'created', 'emergency_alerts', $resident ? 'Reported an emergency.' : 'Sent an emergency alert.', $alertId);
-            header('Location: ' . ($role === 'resident' ? 'resident_dashboard.php?msg=emergency_reported' : 'emergency.php?msg=sent'));
+            logActivity($conn, 'created', 'emergency_alerts', $resident
+                ? 'Emergency report submitted for review.'
+                : 'Official emergency alert prepared as a draft. No resident notification was sent yet.', $alertId);
+            header('Location: ' . ($role === 'resident' ? 'resident_dashboard.php?msg=emergency_reported' : 'emergency.php?view=reports&msg=draft'));
             exit;
         }
-        $error = $resident ? 'The emergency report could not be submitted.' : 'The emergency alert could not be sent.';
+        $error = $resident ? 'The emergency report could not be submitted.' : 'The official emergency alert draft could not be saved.';
         $stmt->close();
     }
 }
@@ -79,8 +121,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php renderSidebar($role === 'resident' ? 'resident_emergency' : 'emergency', 'compact'); ?>
     <main class="main-content">
         <?php $resident
-            ? renderTopbar('Report an Emergency', 'Report a natural disaster to the barangay office.', 'compact', ['clock' => true])
-            : renderTopbar('Send Emergency Alert', 'Broadcast an alert to every resident.', 'compact', ['clock' => true]); ?>
+            ? renderTopbar('Report an Emergency', 'Report an incident for authorized personnel to verify.', 'compact', ['clock' => true])
+            : renderTopbar('Prepare Official Alert', 'Create a verified draft. Residents are notified only after broadcast confirmation.', 'compact', ['clock' => true]); ?>
         <div class="content-card emergency-form-card">
             <div class="emergency-form-heading">
                 <div class="emergency-form-icon"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></div>
@@ -98,12 +140,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <?php if (!$resident): ?>
+                <div class="emergency-form-field">
+                    <label for="severity">Severity Level <span>*</span></label>
+                    <select id="severity" name="severity" required>
+                        <option value="">Assess severity</option>
+                        <?php foreach ($severityOptions as $option): ?>
+                            <option value="<?php echo h($option); ?>"<?php echo $severity === $option ? ' selected' : ''; ?>><?php echo h($option); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <?php endif; ?>
+                <div class="emergency-form-field">
+                    <label for="location">Street / Landmark <span>*</span></label>
+                    <input type="text" id="location" name="location" maxlength="255" required value="<?php echo h($location); ?>" placeholder="e.g. near the bridge or a street landmark">
+                </div>
+                <div class="emergency-form-field">
+                    <label for="affected_area">Affected Area <span>*</span></label>
+                    <select id="affected_area" name="affected_area" required>
+                        <option value="">Select affected area</option>
+                        <?php foreach ($incidentAreas as $area): ?>
+                            <option value="<?php echo h($area); ?>"<?php echo $affectedArea === $area ? ' selected' : ''; ?>><?php echo h($area); ?></option>
+                        <?php endforeach; ?>
+                        <option value="Other"<?php echo $otherAffectedArea !== '' ? ' selected' : ''; ?>>Other area</option>
+                    </select>
+                </div>
+                <div class="emergency-form-field" id="otherAffectedAreaField"<?php echo $otherAffectedArea === '' ? ' hidden' : ''; ?>>
+                    <label for="other_affected_area">Specify Affected Area <span>*</span></label>
+                    <input type="text" id="other_affected_area" name="other_affected_area" maxlength="150" value="<?php echo h($otherAffectedArea); ?>" placeholder="Enter purok or affected location">
+                </div>
+                <div class="emergency-form-field">
+                    <label for="incident_at">Incident Date &amp; Time <span>*</span></label>
+                    <input type="datetime-local" id="incident_at" name="incident_at" required value="<?php echo h($incidentDateTime); ?>">
+                </div>
                 <div class="emergency-form-field">
                     <label for="description">Describe the emergency <span>*</span></label>
-                    <textarea id="description" name="description" rows="7" required placeholder="Describe what happened, where it happened, and the assistance needed."><?php echo h($description); ?></textarea>
+                    <textarea id="description" name="description" rows="7" required placeholder="Describe what happened and any assistance needed."><?php echo h($description); ?></textarea>
                 </div>
                 <div class="emergency-form-actions">
-                    <button type="submit" class="btn btn-danger"><i class="fa-solid fa-<?php echo $resident ? 'paper-plane' : 'bullhorn'; ?>" aria-hidden="true"></i> <?php echo $resident ? 'Send Emergency Report' : 'Send Alert to Residents'; ?></button>
+                    <button type="submit" class="btn btn-danger"><i class="fa-solid fa-<?php echo $resident ? 'paper-plane' : 'file-circle-check'; ?>" aria-hidden="true"></i> <?php echo $resident ? 'Submit Emergency Report' : 'Prepare Alert Draft'; ?></button>
                     <a href="<?php echo $role === 'resident' ? 'resident_dashboard.php' : 'emergency.php'; ?>" class="btn btn-link"><i class="fa-solid fa-xmark" aria-hidden="true"></i> Cancel</a>
                 </div>
             </form>
@@ -111,5 +186,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </main>
 </div>
 <?php renderFooterScripts(false); ?>
+<script>
+    const affectedArea = document.getElementById('affected_area');
+    const otherAreaField = document.getElementById('otherAffectedAreaField');
+    const otherAreaInput = document.getElementById('other_affected_area');
+    if (affectedArea && otherAreaField && otherAreaInput) {
+        const toggleOtherArea = () => {
+            const showOther = affectedArea.value === 'Other';
+            otherAreaField.hidden = !showOther;
+            otherAreaInput.required = showOther;
+        };
+        affectedArea.addEventListener('change', toggleOtherArea);
+        toggleOtherArea();
+    }
+</script>
 </body>
 </html>

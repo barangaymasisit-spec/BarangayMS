@@ -248,6 +248,38 @@ CREATE TABLE IF NOT EXISTS `complaints` (
   KEY `idx_complaints_assigned_to` (`assigned_to_user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS `emergency_alerts` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tracking_number` VARCHAR(50) NOT NULL,
+  `category` VARCHAR(100) NOT NULL,
+  `description` TEXT NOT NULL,
+  `resident_id` INT UNSIGNED DEFAULT NULL,
+  `reported_by` VARCHAR(150) NOT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'Reported',
+  `incident_status` VARCHAR(20) NOT NULL DEFAULT 'Reported',
+  `broadcast_status` VARCHAR(20) NOT NULL DEFAULT 'Not Sent',
+  `severity` VARCHAR(20) NOT NULL DEFAULT 'Unassessed',
+  `location` VARCHAR(255) DEFAULT NULL,
+  `affected_area` VARCHAR(150) DEFAULT NULL,
+  `incident_at` DATETIME DEFAULT NULL,
+  `broadcast_message` TEXT DEFAULT NULL,
+  `resolution_remarks` TEXT DEFAULT NULL,
+  `verified_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `verified_at` DATETIME DEFAULT NULL,
+  `broadcasted_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `broadcasted_at` DATETIME DEFAULT NULL,
+  `resolved_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `resolved_at` DATETIME DEFAULT NULL,
+  `archived_at` DATETIME DEFAULT NULL,
+  `archived_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_emergency_alerts_tracking` (`tracking_number`),
+  KEY `idx_emergency_alerts_incident_archive` (`incident_status`, `archived_at`),
+  KEY `idx_emergency_alerts_broadcast` (`broadcast_status`, `archived_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS `appointments` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `resident_id` INT UNSIGNED DEFAULT NULL,

@@ -976,9 +976,7 @@ function runScheduledBackup(mysqli $conn): bool {
  * On first run, EMG- reports that used to be stored as complaints are moved here.
  */
 function ensureEmergencyAlertsTable(mysqli $conn): void {
-    if ($conn->query("SHOW TABLES LIKE 'emergency_alerts'")->num_rows > 0) {
-        return;
-    }
+    $tableExists = databaseTableExists($conn, 'emergency_alerts');
     $conn->query(
         "CREATE TABLE IF NOT EXISTS emergency_alerts (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -988,21 +986,124 @@ function ensureEmergencyAlertsTable(mysqli $conn): void {
             resident_id INT UNSIGNED NULL,
             reported_by VARCHAR(150) NOT NULL,
             status VARCHAR(20) NOT NULL DEFAULT 'Reported',
+            incident_status VARCHAR(20) NULL,
+            broadcast_status VARCHAR(20) NULL,
+            severity VARCHAR(20) NULL,
+            location VARCHAR(255) NULL,
+            affected_area VARCHAR(150) NULL,
+            incident_at DATETIME NULL,
+            broadcast_message TEXT NULL,
+            resolution_remarks TEXT NULL,
+            verified_by_user_id INT UNSIGNED NULL,
+            verified_at DATETIME NULL,
+            broadcasted_by_user_id INT UNSIGNED NULL,
+            broadcasted_at DATETIME NULL,
+            resolved_by_user_id INT UNSIGNED NULL,
+            resolved_at DATETIME NULL,
+            archived_at DATETIME NULL,
+            archived_by_user_id INT UNSIGNED NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             UNIQUE KEY uniq_emergency_alerts_tracking (tracking_number),
-            KEY idx_emergency_alerts_status (status)
+            KEY idx_emergency_alerts_incident_archive (incident_status, archived_at),
+            KEY idx_emergency_alerts_broadcast (broadcast_status, archived_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     );
+
+    $columns = [];
+    $columnResult = $conn->query("SHOW COLUMNS FROM emergency_alerts");
+    if (!$columnResult) {
+        throw new RuntimeException('Could not inspect emergency alert columns.');
+    }
+    while ($column = $columnResult->fetch_assoc()) {
+        $columns[$column['Field']] = true;
+    }
+    $newColumns = [
+        'incident_status' => 'VARCHAR(20) NULL AFTER status',
+        'broadcast_status' => 'VARCHAR(20) NULL AFTER incident_status',
+        'severity' => 'VARCHAR(20) NULL AFTER broadcast_status',
+        'location' => 'VARCHAR(255) NULL AFTER severity',
+        'affected_area' => 'VARCHAR(150) NULL AFTER location',
+        'incident_at' => 'DATETIME NULL AFTER affected_area',
+        'broadcast_message' => 'TEXT NULL AFTER incident_at',
+        'resolution_remarks' => 'TEXT NULL AFTER broadcast_message',
+        'verified_by_user_id' => 'INT UNSIGNED NULL AFTER resolution_remarks',
+        'verified_at' => 'DATETIME NULL AFTER verified_by_user_id',
+        'broadcasted_by_user_id' => 'INT UNSIGNED NULL AFTER verified_at',
+        'broadcasted_at' => 'DATETIME NULL AFTER broadcasted_by_user_id',
+        'resolved_by_user_id' => 'INT UNSIGNED NULL AFTER broadcasted_at',
+        'resolved_at' => 'DATETIME NULL AFTER resolved_by_user_id',
+        'archived_at' => 'DATETIME NULL AFTER resolved_at',
+        'archived_by_user_id' => 'INT UNSIGNED NULL AFTER archived_at',
+    ];
+    foreach ($newColumns as $name => $definition) {
+        if (!isset($columns[$name])) {
+            $conn->query('ALTER TABLE emergency_alerts ADD COLUMN ' . $name . ' ' . $definition);
+        }
+    }
+
+    if ($conn->query("SHOW INDEX FROM emergency_alerts WHERE Key_name = 'idx_emergency_alerts_incident_archive'")->num_rows === 0) {
+        $conn->query('ALTER TABLE emergency_alerts ADD KEY idx_emergency_alerts_incident_archive (incident_status, archived_at)');
+    }
+    if ($conn->query("SHOW INDEX FROM emergency_alerts WHERE Key_name = 'idx_emergency_alerts_broadcast'")->num_rows === 0) {
+        $conn->query('ALTER TABLE emergency_alerts ADD KEY idx_emergency_alerts_broadcast (broadcast_status, archived_at)');
+    }
+
     $conn->query(
-        "INSERT IGNORE INTO emergency_alerts (tracking_number, category, description, resident_id, reported_by, status, created_at)
-         SELECT tracking_number, category, COALESCE(description, ''), resident_id, resident_name,
-                CASE status WHEN 'Ongoing' THEN 'Active' WHEN 'Resolved' THEN 'Resolved' ELSE 'Reported' END,
-                date_filed
-         FROM complaints WHERE tracking_number LIKE 'EMG-%' ORDER BY id"
+        "UPDATE emergency_alerts e
+         SET e.incident_status = CASE e.status
+                 WHEN 'Active' THEN 'Responding'
+                 WHEN 'Resolved' THEN 'Resolved'
+                 WHEN 'Dismissed' THEN 'Dismissed'
+                 WHEN 'Referred' THEN 'Referred'
+                 WHEN 'Verified' THEN 'Verified'
+                 WHEN 'Reported' THEN 'Reported'
+                 ELSE 'Reported'
+             END
+         WHERE e.incident_status IS NULL"
     );
-    $conn->query("DELETE FROM complaints WHERE tracking_number LIKE 'EMG-%'");
+    $conn->query(
+        "UPDATE emergency_alerts e
+         SET e.broadcast_status = CASE
+                 WHEN e.status = 'Active' THEN 'Sent'
+                 WHEN e.status = 'Resolved' AND EXISTS (
+                     SELECT 1 FROM activity_logs l
+                     WHERE l.entity = 'emergency_alerts' AND l.related_id = e.id
+                       AND (l.details LIKE '%broadcast to residents%' OR l.details LIKE '%Sent an emergency alert%')
+                 ) THEN 'Expired'
+                 WHEN e.status = 'Verified' THEN 'Draft'
+                 ELSE 'Not Sent'
+             END
+         WHERE e.broadcast_status IS NULL"
+    );
+    $conn->query("UPDATE emergency_alerts SET severity = CASE WHEN status = 'Reported' THEN 'Unassessed' ELSE 'Moderate' END WHERE severity IS NULL OR severity = ''");
+    $conn->query("UPDATE emergency_alerts SET affected_area = CASE WHEN status = 'Active' THEN 'Entire Barangay' ELSE 'Not specified' END WHERE affected_area IS NULL OR affected_area = ''");
+    $conn->query('UPDATE emergency_alerts SET incident_at = created_at WHERE incident_at IS NULL');
+    $conn->query("UPDATE emergency_alerts SET broadcasted_at = created_at WHERE broadcast_status IN ('Sent', 'Expired') AND broadcasted_at IS NULL");
+    $conn->query(
+        "UPDATE emergency_alerts
+         SET broadcast_message = CONCAT(
+             UPPER(category), ' — ', UPPER(severity), ' ALERT. An emergency incident has been reported at ',
+             COALESCE(NULLIF(location, ''), 'the barangay'), ' (',
+             COALESCE(NULLIF(affected_area, ''), 'Entire Barangay'),
+             '). Follow instructions from authorized emergency personnel and monitor official barangay updates.'
+         )
+         WHERE broadcast_status IN ('Sent', 'Expired') AND broadcast_message IS NULL"
+    );
+
+    if (!$tableExists) {
+        $conn->query(
+            "INSERT IGNORE INTO emergency_alerts
+                (tracking_number, category, description, resident_id, reported_by, status, incident_status, broadcast_status, severity, affected_area, incident_at, created_at)
+             SELECT tracking_number, category, COALESCE(description, ''), resident_id, resident_name,
+                    CASE status WHEN 'Ongoing' THEN 'Responding' WHEN 'Resolved' THEN 'Resolved' ELSE 'Reported' END,
+                    CASE status WHEN 'Ongoing' THEN 'Responding' WHEN 'Resolved' THEN 'Resolved' ELSE 'Reported' END,
+                    'Not Sent', 'Moderate', 'Not specified', date_filed, date_filed
+             FROM complaints WHERE tracking_number LIKE 'EMG-%' ORDER BY id"
+        );
+        $conn->query("DELETE FROM complaints WHERE tracking_number LIKE 'EMG-%'");
+    }
 }
 
 function nextEmergencyTrackingNumber(mysqli $conn): string {

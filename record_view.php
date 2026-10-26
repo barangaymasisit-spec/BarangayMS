@@ -26,6 +26,7 @@ $identifierLabel = 'RECORD NO.';
 $identifier = '';
 $sections = [];
 $photoSrc = null;
+$timeline = [];
 
 $queries = [
     'personnel' => [
@@ -62,7 +63,21 @@ $queries = [
         'identifier_label' => 'TRACKING NO.',
     ],
     'emergency' => [
-        'sql' => 'SELECT e.*, r.resident_number AS linked_resident_number, COALESCE(CONCAT(r.first_name, " ", r.last_name), "Not linked") AS linked_resident_name FROM emergency_alerts e LEFT JOIN residents r ON r.id = e.resident_id WHERE e.id = ?',
+        'sql' => "SELECT e.*, r.resident_number AS linked_resident_number,
+                         CASE WHEN r.id IS NULL THEN 'Not linked'
+                              ELSE CONCAT_WS(' ', NULLIF(r.first_name, ''), NULLIF(r.middle_name, ''), NULLIF(r.last_name, ''), NULLIF(r.suffix, ''))
+                         END AS linked_resident_name,
+                         COALESCE(CONCAT(verified_user.first_name, ' ', verified_user.last_name), 'Not recorded') AS verified_by_name,
+                         COALESCE(CONCAT(broadcast_user.first_name, ' ', broadcast_user.last_name), 'Not recorded') AS broadcasted_by_name,
+                         COALESCE(CONCAT(resolved_user.first_name, ' ', resolved_user.last_name), 'Not recorded') AS resolved_by_name,
+                         COALESCE(CONCAT(archive_user.first_name, ' ', archive_user.last_name), 'Not recorded') AS archived_by_name
+                  FROM emergency_alerts e
+                  LEFT JOIN residents r ON r.id = e.resident_id
+                  LEFT JOIN users verified_user ON verified_user.id = e.verified_by_user_id
+                  LEFT JOIN users broadcast_user ON broadcast_user.id = e.broadcasted_by_user_id
+                  LEFT JOIN users resolved_user ON resolved_user.id = e.resolved_by_user_id
+                  LEFT JOIN users archive_user ON archive_user.id = e.archived_by_user_id
+                  WHERE e.id = ?",
         'kind' => 'Emergency Report',
         'identifier_label' => 'TRACKING NO.',
     ],
@@ -205,21 +220,56 @@ if ($record) {
     } else {
         $recordTitle = (string)($record['category'] ?? 'Emergency Report');
         $identifier = (string)($record['tracking_number'] ?? $record['id']);
+        $record['status'] = $record['incident_status'];
         $sections = [
             'Emergency Details' => [
                 'tracking_number' => 'Tracking Number',
                 'category' => 'Emergency Type',
-                'description' => 'Description',
+                'incident_status' => 'Incident Status',
+                'broadcast_status' => 'Broadcast Status',
+                'severity' => 'Severity',
+                'affected_area' => 'Affected Area',
+                'location' => 'Street / Landmark',
+                'incident_at' => 'Incident Date & Time',
+                'description' => 'Incident Description',
                 'reported_by' => 'Reported By',
                 'linked_resident_name' => 'Resident Name',
                 'linked_resident_number' => 'Resident Number',
-                'status' => 'Status',
+                'verified_by_name' => 'Verified By',
+                'verified_at' => 'Verified At',
+                'broadcasted_by_name' => 'Broadcast Published By',
+                'broadcasted_at' => 'Broadcast Published At',
+                'broadcast_message' => 'Broadcast Message',
+                'resolved_by_name' => 'Resolved / Referred By',
+                'resolved_at' => 'Resolved / Referred At',
+                'resolution_remarks' => 'Resolution / Referral Remarks',
+                'archived_at' => 'Archived At',
+                'archived_by_name' => 'Archived By',
             ],
             'Record Information' => [
                 'created_at' => 'Report Created',
                 'updated_at' => 'Last Updated',
             ],
         ];
+        $timelineStmt = $conn->prepare(
+            "SELECT l.action, l.details, l.created_at,
+                    CASE WHEN u.id IS NULL THEN 'System / previous record' ELSE CONCAT(u.first_name, ' ', u.last_name) END AS actor_name
+             FROM activity_logs l LEFT JOIN users u ON u.id = l.user_id
+             WHERE l.entity = 'emergency_alerts' AND l.related_id = ?
+             ORDER BY l.id ASC"
+        );
+        $timelineStmt->bind_param('i', $recordId);
+        $timelineStmt->execute();
+        $timeline = $timelineStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $timelineStmt->close();
+        if ($timeline === []) {
+            $timeline[] = [
+                'action' => 'reported',
+                'details' => 'Emergency incident record created.',
+                'created_at' => $record['created_at'] ?? null,
+                'actor_name' => (string)($record['reported_by'] ?? 'Not recorded'),
+            ];
+        }
     }
 }
 
@@ -232,7 +282,7 @@ function recordViewValue(array $record, string $field): string {
         $timestamp = strtotime((string)$value);
         return $timestamp ? date('g:i A', $timestamp) : (string)$value;
     }
-    if (in_array($field, ['created_at', 'updated_at'], true)) {
+    if (in_array($field, ['created_at', 'updated_at', 'incident_at', 'verified_at', 'broadcasted_at', 'resolved_at', 'archived_at'], true)) {
         return formatDatabaseDateTime((string)$value);
     }
     if (in_array($field, ['term_start', 'term_end', 'appointment_date', 'request_date', 'approved_date', 'date_filed'], true)) {
@@ -283,6 +333,7 @@ if (!$record) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <?php pageTitle($record ? $recordKind : 'Record Not Found'); ?>
     <link rel="stylesheet" href="<?php echo asset('residents.css'); ?>">
+    <?php if ($type === 'emergency'): ?><link rel="stylesheet" href="<?php echo asset('emergency.css'); ?>"><?php endif; ?>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -337,7 +388,7 @@ if (!$record) {
                         <h2><?php echo h($sectionTitle); ?></h2>
                         <dl class="resident-detail-grid">
                             <?php foreach ($fields as $field => $label): ?>
-                                <div class="resident-detail-item<?php echo in_array($field, ['address', 'notes', 'purpose', 'remarks', 'description', 'response'], true) ? ' resident-detail-item-wide' : ''; ?>">
+                                <div class="resident-detail-item<?php echo in_array($field, ['address', 'notes', 'purpose', 'remarks', 'resolution_remarks', 'broadcast_message', 'description', 'response'], true) ? ' resident-detail-item-wide' : ''; ?>">
                                     <dt><?php echo h($label); ?></dt>
                                     <dd><?php echo nl2br(h(recordViewValue($record, $field))); ?></dd>
                                 </div>
@@ -345,6 +396,25 @@ if (!$record) {
                         </dl>
                     </section>
                 <?php endforeach; ?>
+
+                <?php if ($type === 'emergency'): ?>
+                    <section class="resident-detail-section emergency-print-timeline">
+                        <h2>Emergency Response Timeline</h2>
+                        <?php if ($timeline === []): ?>
+                            <p class="resident-no-members">No actions have been recorded.</p>
+                        <?php else: ?>
+                            <ol class="emergency-timeline-list">
+                                <?php foreach ($timeline as $event): ?>
+                                    <li>
+                                        <strong><?php echo h($event['details'] ?: $event['action']); ?></strong>
+                                        <time><?php echo h(formatDatabaseDateTime($event['created_at'] ?? null)); ?></time>
+                                        <span><?php echo h($event['actor_name']); ?></span>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ol>
+                        <?php endif; ?>
+                    </section>
+                <?php endif; ?>
 
                 <?php if ($type === 'household'): ?>
                     <section class="resident-detail-section">
