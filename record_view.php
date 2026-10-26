@@ -347,19 +347,29 @@ if (!$record) {
                             }
                             ?>
                             <?php foreach ($families as $familyHead => $familyMembers): ?>
-                                <h3><?php echo h($familyHead === 'Family group not specified' ? $familyHead : 'Family of ' . $familyHead); ?></h3>
-                                <table class="resident-members-table">
-                                    <thead><tr><th>Resident No.</th><th>Name</th><th>Relationship / Status</th></tr></thead>
-                                    <tbody>
-                                        <?php foreach ($familyMembers as $member): ?>
-                                            <tr>
-                                                <td><?php echo h($member['resident_number']); ?></td>
-                                                <td><?php echo h(trim(implode(' ', array_filter([$member['first_name'], $member['middle_name'], $member['last_name'], $member['suffix']])))); ?></td>
-                                                <td><?php echo h(($member['relationship_head'] ?? '') ?: ($member['resident_status'] ?? '')); ?></td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
+                                <?php
+                                $familyMembers = array_values(array_filter($familyMembers, static function (array $member) use ($familyHead): bool {
+                                    $memberName = trim(implode(' ', array_filter([$member['first_name'], $member['middle_name'], $member['last_name'], $member['suffix']])));
+                                    return $memberName !== $familyHead;
+                                }));
+                                ?>
+                                <h3><?php echo h($familyHead === 'Family group not specified' ? $familyHead : 'Family of ' . $familyHead); ?> · <?php echo count($familyMembers); ?> members</h3>
+                                <?php if ($familyMembers === []): ?>
+                                    <p class="resident-no-members">No other residents are assigned to this family.</p>
+                                <?php else: ?>
+                                    <table class="resident-members-table">
+                                        <thead><tr><th>Resident No.</th><th>Name</th><th>Relationship / Status</th></tr></thead>
+                                        <tbody>
+                                            <?php foreach ($familyMembers as $member): ?>
+                                                <tr>
+                                                    <td><?php echo h($member['resident_number']); ?></td>
+                                                    <td><?php echo h(trim(implode(' ', array_filter([$member['first_name'], $member['middle_name'], $member['last_name'], $member['suffix']])))); ?></td>
+                                                    <td><?php echo h(($member['relationship_head'] ?? '') ?: ($member['resident_status'] ?? '')); ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                <?php endif; ?>
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </section>

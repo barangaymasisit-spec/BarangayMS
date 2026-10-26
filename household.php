@@ -442,26 +442,36 @@ function householdPageUrl($page, $search, $status, $view = 0) {
                 <?php else: ?>
                     <div class="household-family-grid">
                         <?php foreach ($selectedFamilies as $familyHead => $familyMembers): ?>
+                            <?php
+                            $familyMembers = array_values(array_filter($familyMembers, static function (array $member) use ($familyHead): bool {
+                                $memberName = trim(implode(' ', array_filter([$member['first_name'], $member['middle_name'], $member['last_name'], $member['suffix']])));
+                                return $memberName !== $familyHead;
+                            }));
+                            ?>
                             <section class="household-family-card" aria-label="<?php echo h($familyHead); ?>">
                                 <h4><i class="fa-solid fa-users" aria-hidden="true"></i> <?php echo h($familyHead === 'Family group not specified' ? $familyHead : 'Family of ' . $familyHead); ?><span><?php echo count($familyMembers); ?> Members</span></h4>
-                                <div class="table-responsive">
-                                    <table class="household-members-table">
-                                        <caption class="visually-hidden">Residents in <?php echo h($familyHead); ?></caption>
-                                        <thead>
-                                            <tr><th scope="col">No.</th><th scope="col">Resident No.</th><th scope="col">Full Name</th><th scope="col">Relationship / Status</th></tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach ($familyMembers as $index => $member): ?>
-                                                <tr>
-                                                    <td><?php echo $index + 1; ?></td>
-                                                    <td><?php echo h($member['resident_number']); ?></td>
-                                                    <td><?php echo h(trim(implode(' ', array_filter([$member['first_name'], $member['middle_name'], $member['last_name'], $member['suffix']])))); ?></td>
-                                                    <td><?php echo h(($member['relationship_head'] ?? '') ?: ($member['resident_status'] ?? 'Not recorded')); ?></td>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
+                                <?php if ($familyMembers === []): ?>
+                                    <p class="household-no-members">No other residents are assigned to this family.</p>
+                                <?php else: ?>
+                                    <div class="table-responsive">
+                                        <table class="household-members-table">
+                                            <caption class="visually-hidden">Residents in <?php echo h($familyHead); ?></caption>
+                                            <thead>
+                                                <tr><th scope="col">No.</th><th scope="col">Resident No.</th><th scope="col">Full Name</th><th scope="col">Relationship / Status</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php foreach ($familyMembers as $index => $member): ?>
+                                                    <tr>
+                                                        <td><?php echo $index + 1; ?></td>
+                                                        <td><?php echo h($member['resident_number']); ?></td>
+                                                        <td><?php echo h(trim(implode(' ', array_filter([$member['first_name'], $member['middle_name'], $member['last_name'], $member['suffix']])))); ?></td>
+                                                        <td><?php echo h(($member['relationship_head'] ?? '') ?: ($member['resident_status'] ?? 'Not recorded')); ?></td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                <?php endif; ?>
                             </section>
                         <?php endforeach; ?>
                     </div>

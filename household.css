@@ -1021,6 +1021,10 @@ a.btn-delete{
     min-width:700px;
 }
 
+.resident-assignment-row[hidden]{
+    display:none !important;
+}
+
 .household-assignment-table thead{
     background:#0B4A9E;
 }

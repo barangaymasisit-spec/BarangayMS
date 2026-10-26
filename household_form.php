@@ -449,20 +449,31 @@ $statusOptions = ['Active', 'Archived'];
     const householdHeadPicker = document.getElementById('household_head_resident_id');
     const rows = Array.from(document.querySelectorAll('.resident-assignment-row'));
 
-    function syncHouseholdHeadRow(){
-        if (!householdHeadPicker) return;
-        const headId = householdHeadPicker.value;
+    function syncFamilyRows(){
+        const householdHeadId = householdHeadPicker ? householdHeadPicker.value : '';
+        const familyHeadIds = new Set([householdHeadId]);
         rows.forEach(function(row){
-            const isHouseholdHead = row.dataset.residentRowId === headId;
-            row.hidden = isHouseholdHead;
-            if (!isHouseholdHead) return;
             const familySelect = row.querySelector('.resident-family-select');
             const roleInput = row.querySelector('input[name^="family_role["]');
-            if (familySelect) familySelect.value = headId;
-            if (roleInput) roleInput.value = 'Family Head';
+            const residentId = row.dataset.residentRowId;
+            const residentName = row.querySelector('strong').textContent.trim();
+            const isHouseholdHead = residentId === householdHeadId;
+            if (isHouseholdHead && familySelect) familySelect.value = residentId;
+            const isFamilyHead = isHouseholdHead || (familySelect && familySelect.value === residentId);
+            row.hidden = isFamilyHead;
+            if (isFamilyHead) {
+                familyHeadIds.add(residentId);
+                if (roleInput) roleInput.value = 'Family Head';
+            }
+
+            document.querySelectorAll('.resident-family-select option').forEach(function(option){
+                if (option.value === residentId) {
+                    option.textContent = 'Family of ' + residentName;
+                }
+            });
         });
         Array.from(headPicker.options).forEach(function(option){
-            option.disabled = option.value === headId;
+            option.disabled = familyHeadIds.has(option.value);
         });
     }
 
@@ -484,15 +495,17 @@ $statusOptions = ['Active', 'Archived'];
 
     document.querySelectorAll('.resident-family-select').forEach(function(select){
         select.addEventListener('change', function(){
-            if (select.value !== select.dataset.residentId) return;
             const roleInput = select.closest('tr').querySelector('input[name^="family_role["]');
-            if (roleInput) roleInput.value = 'Family Head';
+            if (roleInput && select.value !== select.dataset.residentId && roleInput.value === 'Family Head') {
+                roleInput.value = '';
+            }
+            syncFamilyRows();
         });
     });
     if (householdHeadPicker) {
-        householdHeadPicker.addEventListener('change', syncHouseholdHeadRow);
-        syncHouseholdHeadRow();
+        householdHeadPicker.addEventListener('change', syncFamilyRows);
     }
+    syncFamilyRows();
 })();
 </script>
 <?php endif; ?>
