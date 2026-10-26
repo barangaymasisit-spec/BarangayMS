@@ -64,6 +64,10 @@ if ($archiveReasonColumn && $archiveReasonColumn->num_rows === 0) {
 }
 $uploadError = '';
 $officialError = '';
+$archiveDialogShouldReopen = false;
+$archiveDialogOfficialId = 0;
+$archiveDialogPersonName = '';
+$archiveReasonValue = '';
 $officialSuccess = '';
 $editAdminId = (int)($_GET['edit_admin'] ?? 0);
 $editAdmin = null;
@@ -106,9 +110,9 @@ function personnelReturnUrl(array $source, string $notice): string {
     $pageState = personnelPageState($source);
     $section = $source['return_section'] ?? '';
     $anchor = [
-        'official_page' => '#officials-list',
-        'health_worker_page' => '#liveHealthWorkers',
-        'security_force_page' => '#liveSecurityForces',
+        'official_page' => '#officials-pagination',
+        'health_worker_page' => '#health-workers-pagination',
+        'security_force_page' => '#security-forces-pagination',
         'admin-form' => '#admin-form',
     ][$section] ?? '';
     $pageState[$notice] = 1;
@@ -120,14 +124,14 @@ function personnelArchiveForm(int $officialId, string $role, string $personName,
     $fields = csrfField()
         . '<input type="hidden" name="form_type" value="archive_official">'
         . '<input type="hidden" name="official_id" value="' . $officialId . '">'
-        . '<input type="hidden" name="archive_reason" value="">'
+        . '<input type="hidden" name="person_name" value="' . h(trim($personName)) . '">'
         . '<input type="hidden" name="role" value="' . h($role) . '">';
     foreach ($pageState as $key => $value) {
         $fields .= '<input type="hidden" name="' . h($key) . '" value="' . h((string)$value) . '">';
     }
     $fields .= '<input type="hidden" name="return_section" value="' . h($pageParam) . '">';
 
-    return '<form method="post" action="officials.php" class="d-inline" data-personnel-confirm-form data-action="archive" data-personnel-role="' . h($role) . '" data-person-name="' . h(trim($personName)) . '">'
+    return '<form id="archive-personnel-' . $officialId . '" method="post" action="officials.php" class="d-inline" data-personnel-confirm-form data-action="archive" data-personnel-role="' . h($role) . '" data-person-name="' . h(trim($personName)) . '">'
         . $fields
         . '<button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive</button>'
         . '</form>';
@@ -143,7 +147,7 @@ function personnelRestoreForm(int $officialId, string $role, string $personName,
     }
     $fields .= '<input type="hidden" name="return_section" value="' . h($pageParam) . '">';
 
-    return '<form method="post" action="officials.php" class="d-inline" data-personnel-confirm-form data-action="restore" data-personnel-role="' . h($role) . '" data-person-name="' . h(trim($personName)) . '">'
+    return '<form id="restore-personnel-' . $officialId . '" method="post" action="officials.php" class="d-inline" data-personnel-confirm-form data-action="restore" data-personnel-role="' . h($role) . '" data-person-name="' . h(trim($personName)) . '">'
         . $fields
         . '<button type="submit" class="btn btn-sm btn-outline-primary"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Restore</button>'
         . '</form>';
@@ -510,6 +514,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'ar
         $officialError = 'Choose a valid personnel account to archive.';
     } elseif ($archiveReason === '' || $archiveReasonLength > 500) {
         $officialError = 'Enter an archive reason of 1 to 500 characters.';
+        $archiveDialogShouldReopen = true;
+        $archiveDialogOfficialId = (int)$officialId;
+        $archiveDialogPersonName = trim((string)($_POST['person_name'] ?? ''));
+        $archiveReasonValue = (string)($_POST['archive_reason'] ?? '');
     } else {
         try {
             $archiveStmt = $conn->prepare("UPDATE users SET status = 'Archived', archived_at = NOW(), archive_reason = ? WHERE id = ? AND role = ? AND status <> 'Archived'");
@@ -795,13 +803,18 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
     $query = $pageState ?? personnelPageState($_GET);
     $anchor = match ($pageParam) {
-        'official_page' => '#officials-list',
-        'health_worker_page' => '#liveHealthWorkers',
-        'security_force_page' => '#liveSecurityForces',
+        'official_page' => '#officials-pagination',
+        'health_worker_page' => '#health-workers-pagination',
+        'security_force_page' => '#security-forces-pagination',
         default => '',
     };
 
-    echo '<div class="pagination-bar">';
+    $paginationId = [
+        'official_page' => 'officials-pagination',
+        'health_worker_page' => 'health-workers-pagination',
+        'security_force_page' => 'security-forces-pagination',
+    ][$pageParam] ?? '';
+    echo '<div class="pagination-bar"' . ($paginationId !== '' ? ' id="' . h($paginationId) . '"' : '') . '>';
     echo '<span class="page-status">Page ' . (int)$pageData['page'] . ' of ' . (int)$pageData['total_pages'] . '</span><div class="btn-group">';
     if ((int)$pageData['page'] > 1) {
         echo '<a class="btn btn-sm btn-outline-secondary" href="officials.php?' . h(http_build_query(array_merge($query, [$pageParam => (int)$pageData['page'] - 1]))) . $anchor . '">Previous</a>';
@@ -1211,17 +1224,18 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
 </div>
 
-<dialog class="personnel-archive-dialog" id="personnelActionDialog" aria-labelledby="personnelActionTitle" aria-describedby="personnelActionDescription">
+<dialog class="personnel-archive-dialog" id="personnelActionDialog" aria-labelledby="personnelActionTitle" aria-describedby="personnelActionDescription"<?php echo $archiveDialogShouldReopen ? ' data-reopen-archive="true" data-reopen-archive-id="' . $archiveDialogOfficialId . '"' : ''; ?>>
     <div class="personnel-archive-dialog__icon" aria-hidden="true">
         <i class="fa-solid fa-box-archive" id="personnelActionIcon"></i>
     </div>
     <p class="personnel-archive-dialog__eyebrow">BARANGAY MANAGEMENT SYSTEM</p>
     <h2 id="personnelActionTitle">Archive this personnel?</h2>
-    <p class="personnel-archive-dialog__person" id="personnelActionName"></p>
+    <p class="personnel-archive-dialog__person" id="personnelActionName"><?php echo h($archiveDialogPersonName); ?></p>
     <p id="personnelActionDescription">This account will be moved to Archived Officials. Its personnel slot will be available again.</p>
+    <?php if ($archiveDialogShouldReopen): ?><p class="personnel-archive-dialog__validation" role="alert">Enter an archive reason of 1 to 500 characters.</p><?php endif; ?>
     <div class="personnel-archive-reason-field" id="personnelArchiveReasonField">
         <label for="personnelArchiveReason">Reason for archiving <span aria-hidden="true">*</span></label>
-        <textarea id="personnelArchiveReason" maxlength="500" rows="3" placeholder="Briefly explain why this account is being archived"></textarea>
+        <textarea id="personnelArchiveReason" name="archive_reason" maxlength="500" rows="3" placeholder="Briefly explain why this account is being archived"><?php echo h($archiveReasonValue); ?></textarea>
     </div>
     <div class="personnel-archive-dialog__note">
         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
@@ -1254,6 +1268,11 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             const restoring = form.dataset.action === 'restore';
             const isOfficial = form.dataset.personnelRole === 'staff';
             pendingForm = form;
+            if (restoring) {
+                archiveReason.removeAttribute('form');
+            } else {
+                archiveReason.setAttribute('form', form.id);
+            }
             dialog.classList.toggle('is-restoring', restoring);
             archiveReasonField.hidden = restoring;
             archiveReason.required = !restoring;
@@ -1293,7 +1312,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                 archiveReason.focus();
                 return;
             }
-            pendingForm.querySelector('[name="archive_reason"]').value = reason;
+            archiveReason.value = reason;
         }
         confirmButton.disabled = true;
         pendingForm.submit();
@@ -1302,6 +1321,13 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         pendingForm = null;
         confirmButton.disabled = false;
     });
+    if (dialog.dataset.reopenArchive === 'true') {
+        pendingForm = document.getElementById('archive-personnel-' + dialog.dataset.reopenArchiveId);
+        if (pendingForm) archiveReason.setAttribute('form', pendingForm.id);
+        archiveReason.required = true;
+        dialog.showModal();
+        archiveReason.focus();
+    }
 })();
 </script>
 

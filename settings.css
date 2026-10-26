@@ -879,6 +879,10 @@ hr{
     display:inline-flex !important;
 }
 
+.pagination-bar[id]{
+    scroll-margin-top:110px;
+}
+
 .official-archive-details{
     display:block;
     max-width:230px;
