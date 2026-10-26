@@ -1522,6 +1522,135 @@ a.btn-delete{
 .certificate-dialog-action.is-danger{border-color:#f0c6c3;color:#ad302a}
 .certificate-dialog-action[hidden]{display:none}
 
+.certificate-confirm-dialog{
+    position:fixed;
+    inset:0;
+    width:min(420px,calc(100% - 32px));
+    max-width:none;
+    margin:auto;
+    padding:30px;
+    overflow:visible;
+    border:1px solid #e0e8f2;
+    border-radius:20px;
+    background:#fff;
+    color:#27384d;
+    box-shadow:0 26px 75px rgba(13,42,78,.28);
+    text-align:center;
+}
+
+.certificate-confirm-dialog[open]{
+    animation:certificate-dialog-enter .18s ease-out;
+}
+
+.certificate-confirm-dialog::backdrop{
+    background:rgba(13,31,56,.58);
+    backdrop-filter:blur(3px);
+}
+
+.certificate-confirm-dialog__icon{
+    display:grid;
+    width:54px;
+    height:54px;
+    margin:0 auto 15px;
+    place-items:center;
+    border:1px solid #d6e6f8;
+    border-radius:17px;
+    background:#eef6ff;
+    color:#0B4A9E;
+    font-size:21px;
+}
+
+.certificate-confirm-dialog__icon.is-danger{
+    border-color:#f3d5d1;
+    background:#fff2f0;
+    color:#ba3931;
+}
+
+.certificate-confirm-dialog__eyebrow{
+    color:#7188a5;
+    font-size:9px;
+    font-weight:700;
+    letter-spacing:.15em;
+}
+
+.certificate-confirm-dialog h2{
+    margin:7px 0 8px;
+    color:#173b69;
+    font-size:20px;
+    font-weight:700;
+}
+
+.certificate-confirm-dialog p{
+    margin:0 auto;
+    max-width:330px;
+    color:#687b93;
+    font-size:13px;
+    line-height:1.6;
+}
+
+.certificate-confirm-dialog__actions{
+    display:flex;
+    justify-content:center;
+    gap:10px;
+    margin-top:25px;
+}
+
+.certificate-confirm-dialog__actions button{
+    display:inline-flex;
+    min-width:112px;
+    min-height:42px;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    padding:9px 15px;
+    border:1px solid #d6e0ed;
+    border-radius:11px;
+    background:#fff;
+    color:#52657b;
+    font:inherit;
+    font-size:12px;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease;
+}
+
+.certificate-confirm-dialog__actions button:hover{
+    transform:translateY(-1px);
+    border-color:#b9cce2;
+    background:#f6f9fd;
+    color:#173b69;
+}
+
+.certificate-confirm-dialog__actions .certificate-confirm-dialog__submit{
+    border-color:#0B4A9E;
+    background:#0B4A9E;
+    color:#fff;
+    box-shadow:0 5px 12px rgba(11,74,158,.16);
+}
+
+.certificate-confirm-dialog__actions .certificate-confirm-dialog__submit:hover{
+    border-color:#08366f;
+    background:#08366f;
+    color:#fff;
+}
+
+.certificate-confirm-dialog__actions .certificate-confirm-dialog__submit.is-danger{
+    border-color:#bf3932;
+    background:#bf3932;
+    box-shadow:0 5px 12px rgba(191,57,50,.15);
+}
+
+.certificate-confirm-dialog__actions .certificate-confirm-dialog__submit.is-danger:hover{
+    border-color:#a82d27;
+    background:#a82d27;
+}
+
+.certificate-confirm-dialog__actions button:disabled{
+    transform:none;
+    cursor:wait;
+    opacity:.7;
+}
+
 @keyframes certificate-dialog-enter{
     from{opacity:0;transform:translateY(7px) scale(.99)}
     to{opacity:1;transform:translateY(0) scale(1)}
@@ -1535,9 +1664,13 @@ a.btn-delete{
     .certificate-details-dialog__body{padding:12px 18px 18px}
     .certificate-details-dialog__actions{padding:12px 18px}
     .certificate-details-status__controls{align-items:stretch;flex-direction:column}
+    .certificate-confirm-dialog{padding:25px 20px}
+    .certificate-confirm-dialog__actions button{min-width:0;flex:1}
 }
 
 @media (prefers-reduced-motion:reduce){
     .certificate-details-dialog[open]{animation:none}
+    .certificate-confirm-dialog[open]{animation:none}
     .certificate-request-tab{transition:none}
+    .certificate-confirm-dialog__actions button{transition:none}
 }

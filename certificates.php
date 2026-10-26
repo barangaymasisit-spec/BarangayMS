@@ -831,6 +831,22 @@ $activeFilters = [
     </div>
 </dialog>
 
+<dialog class="certificate-confirm-dialog" id="certificateConfirmDialog" aria-labelledby="certificateConfirmTitle" aria-describedby="certificateConfirmMessage">
+    <div class="certificate-confirm-dialog__icon" id="certificateConfirmIcon" aria-hidden="true">
+        <i class="fa-solid fa-box-archive"></i>
+    </div>
+    <span class="certificate-confirm-dialog__eyebrow">CERTIFICATE REQUEST</span>
+    <h2 id="certificateConfirmTitle">Archive this request?</h2>
+    <p id="certificateConfirmMessage">The request will move to Archived. You can restore it later.</p>
+    <div class="certificate-confirm-dialog__actions">
+        <button type="button" class="certificate-confirm-dialog__cancel" id="certificateConfirmCancel">Cancel</button>
+        <button type="button" class="certificate-confirm-dialog__submit is-danger" id="certificateConfirmSubmit">
+            <i class="fa-solid fa-box-archive" aria-hidden="true"></i>
+            <span>Archive Request</span>
+        </button>
+    </div>
+</dialog>
+
 <?php renderFooterScripts(false); ?>
 
 <script>
@@ -878,6 +894,12 @@ $activeFilters = [
         const archiveButton = document.getElementById('certificateDetailArchive');
         const restoreButton = document.getElementById('certificateDetailRestore');
         const printLink = document.getElementById('certificateDetailPrint');
+        const confirmDialog = document.getElementById('certificateConfirmDialog');
+        const confirmIcon = document.getElementById('certificateConfirmIcon');
+        const confirmTitle = document.getElementById('certificateConfirmTitle');
+        const confirmMessage = document.getElementById('certificateConfirmMessage');
+        const confirmSubmit = document.getElementById('certificateConfirmSubmit');
+        let pendingConfirmation = null;
         let activeCertificate = null;
 
         const setText = function (id, value) {
@@ -896,6 +918,26 @@ $activeFilters = [
                 throw new Error(result.message || 'The certificate request could not be updated.');
             }
             return result;
+        };
+
+        const showActionConfirmation = function (action, formData, errorTarget) {
+            const isArchive = action === 'archive_request';
+            pendingConfirmation = {formData: formData, errorTarget: errorTarget};
+            confirmDialog.dataset.action = action;
+            confirmIcon.classList.toggle('is-danger', isArchive);
+            confirmIcon.innerHTML = isArchive
+                ? '<i class="fa-solid fa-box-archive" aria-hidden="true"></i>'
+                : '<i class="fa-solid fa-rotate-left" aria-hidden="true"></i>';
+            confirmTitle.textContent = isArchive ? 'Archive this request?' : 'Restore this request?';
+            confirmMessage.textContent = isArchive
+                ? 'The request will move to Archived. You can restore it later.'
+                : 'This request will return to Active Requests.';
+            confirmSubmit.classList.toggle('is-danger', isArchive);
+            confirmSubmit.querySelector('i').className = isArchive ? 'fa-solid fa-box-archive' : 'fa-solid fa-rotate-left';
+            confirmSubmit.querySelector('span').textContent = isArchive ? 'Archive Request' : 'Restore Request';
+            confirmSubmit.disabled = false;
+            confirmDialog.showModal();
+            document.getElementById('certificateConfirmCancel').focus();
         };
 
         const openCertificateDetails = async function (certificateId) {
@@ -975,14 +1017,7 @@ $activeFilters = [
             if (!actionForm) return;
             event.preventDefault();
             const action = actionForm.querySelector('[name="action"]').value;
-            const label = action === 'archive_request' ? 'Archive this request?' : 'Restore this request?';
-            if (!window.confirm(label)) return;
-            try {
-                const result = await sendCertificateAction(new FormData(actionForm));
-                window.location.reload();
-            } catch (error) {
-                window.alert(error.message);
-            }
+            showActionConfirmation(action, new FormData(actionForm), null);
         });
 
         statusForm.addEventListener('submit', async function (event) {
@@ -996,26 +1031,44 @@ $activeFilters = [
         });
 
         archiveButton.addEventListener('click', async function () {
-            if (!activeCertificate || !window.confirm('Archive this certificate request?')) return;
+            if (!activeCertificate) return;
             const formData = new FormData(statusForm);
             formData.set('action', 'archive_request');
-            try {
-                await sendCertificateAction(formData);
-                window.location.reload();
-            } catch (error) {
-                detailsMessage.textContent = error.message;
-            }
+            showActionConfirmation('archive_request', formData, detailsMessage);
         });
 
         restoreButton.addEventListener('click', async function () {
-            if (!activeCertificate || !window.confirm('Restore this certificate request?')) return;
+            if (!activeCertificate) return;
             const formData = new FormData(statusForm);
             formData.set('action', 'restore_request');
+            showActionConfirmation('restore_request', formData, detailsMessage);
+        });
+
+        document.getElementById('certificateConfirmCancel').addEventListener('click', function () {
+            pendingConfirmation = null;
+            confirmDialog.close();
+        });
+
+        confirmSubmit.addEventListener('click', async function () {
+            if (!pendingConfirmation) return;
+            confirmSubmit.disabled = true;
+            confirmMessage.textContent = 'Saving your changes…';
             try {
-                await sendCertificateAction(formData);
+                await sendCertificateAction(pendingConfirmation.formData);
                 window.location.reload();
             } catch (error) {
-                detailsMessage.textContent = error.message;
+                confirmMessage.textContent = error.message;
+                if (pendingConfirmation.errorTarget) {
+                    pendingConfirmation.errorTarget.textContent = error.message;
+                }
+                confirmSubmit.disabled = false;
+            }
+        });
+
+        confirmDialog.addEventListener('click', function (event) {
+            if (event.target === confirmDialog) {
+                pendingConfirmation = null;
+                confirmDialog.close();
             }
         });
 
