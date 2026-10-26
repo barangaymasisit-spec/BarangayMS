@@ -61,6 +61,7 @@ $editAdminId = (int)($_GET['edit_admin'] ?? 0);
 $editAdmin = null;
 $editOfficialId = (int)($_GET['edit'] ?? 0);
 $editOfficial = null;
+$isNewTermMode = ($_GET['new_term'] ?? '') === '1';
 
 function officialPhotoSrc(array $person): ?string {
     if (!empty($person['photo_path']) && is_file(__DIR__ . '/' . $person['photo_path'])) {
@@ -80,6 +81,7 @@ function personnelPageState(array $source): array {
         'official_search' => trim($source['official_search'] ?? ''),
         'official_status_filter' => in_array($statusFilter, ['all', 'Active', 'Inactive', 'Archived'], true) ? $statusFilter : 'all',
         'official_role_filter' => in_array($roleFilter, ['all', 'staff', 'health_worker', 'security_force'], true) ? $roleFilter : 'all',
+        'official_view' => in_array($source['official_view'] ?? '', ['active', 'archived', 'history'], true) ? $source['official_view'] : 'active',
         'official_page' => max(1, (int)($source['official_page'] ?? 1)),
         'health_worker_page' => max(1, (int)($source['health_worker_page'] ?? 1)),
         'security_force_page' => max(1, (int)($source['security_force_page'] ?? 1)),
@@ -116,9 +118,25 @@ function personnelArchiveForm(int $officialId, string $role, string $personName,
     }
     $fields .= '<input type="hidden" name="return_section" value="' . h($pageParam) . '">';
 
-    return '<form method="post" action="officials.php" class="d-inline" data-personnel-archive-form data-person-name="' . h(trim($personName)) . '">'
+    return '<form method="post" action="officials.php" class="d-inline" data-personnel-confirm-form data-action="archive" data-personnel-role="' . h($role) . '" data-person-name="' . h(trim($personName)) . '">'
         . $fields
         . '<button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive</button>'
+        . '</form>';
+}
+
+function personnelRestoreForm(int $officialId, string $role, string $personName, string $pageParam, array $pageState): string {
+    $fields = csrfField()
+        . '<input type="hidden" name="form_type" value="restore_official">'
+        . '<input type="hidden" name="official_id" value="' . $officialId . '">'
+        . '<input type="hidden" name="role" value="' . h($role) . '">';
+    foreach ($pageState as $key => $value) {
+        $fields .= '<input type="hidden" name="' . h($key) . '" value="' . h((string)$value) . '">';
+    }
+    $fields .= '<input type="hidden" name="return_section" value="' . h($pageParam) . '">';
+
+    return '<form method="post" action="officials.php" class="d-inline" data-personnel-confirm-form data-action="restore" data-personnel-role="' . h($role) . '" data-person-name="' . h(trim($personName)) . '">'
+        . $fields
+        . '<button type="submit" class="btn btn-sm btn-outline-primary"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Restore</button>'
         . '</form>';
 }
 
@@ -218,6 +236,14 @@ if ($editOfficialId > 0) {
     $stmt->close();
 }
 
+$isNewTermMode = $editOfficial !== null && $isNewTermMode;
+if ($editOfficial && $isNewTermMode) {
+    $editOfficial['status'] = 'Active';
+    $editOfficial['term'] = '';
+    $editOfficial['term_start'] = '';
+    $editOfficial['term_end'] = '';
+}
+
 if ($editAdminId > 0) {
     $stmt = $conn->prepare("SELECT id, first_name, last_name, username, email, status FROM users WHERE id = ? AND role = 'admin'");
     $stmt->bind_param('i', $editAdminId);
@@ -239,6 +265,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
     $termStart = preg_match('/^\d{4}-\d{2}-\d{2}$/', $termStart) ? $termStart : null;
     $termEnd = trim($_POST['term_end'] ?? '');
     $termEnd = preg_match('/^\d{4}-\d{2}-\d{2}$/', $termEnd) ? $termEnd : null;
+    $isNewTerm = ($_POST['new_term'] ?? '') === '1';
+    $isNewTermMode = $isNewTerm;
     if ($termStart !== null && $termEnd !== null) {
         $term = substr($termStart, 0, 4) . ' - ' . substr($termEnd, 0, 4);
     }
@@ -269,6 +297,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
         $officialError = 'Please choose an official position.';
     } elseif ($termStart !== null && $termEnd !== null && $termStart > $termEnd) {
         $officialError = 'Term Start must be on or before Term End.';
+    } elseif ($isNewTerm && ($termStart === null || $termEnd === null || !checkdate((int)substr($termStart, 5, 2), (int)substr($termStart, 8, 2), (int)substr($termStart, 0, 4)) || !checkdate((int)substr($termEnd, 5, 2), (int)substr($termEnd, 8, 2), (int)substr($termEnd, 0, 4)))) {
+        $officialError = 'Enter valid start and end dates for the new term.';
     } elseif ($status === 'Active' && $termEnd !== null && $termEnd < date('Y-m-d')) {
         $officialError = 'Term End date has already passed. Extend it (re-elected) or set the status to Inactive.';
     } elseif (($officialId === 0 || $password !== '') && !validatePasswordStrength($password)['valid']) {
@@ -315,7 +345,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
                 $officialError = 'Personnel records are being updated. Please try again.';
             } else {
                 $capacityLockAcquired = true;
-                if ($status !== 'Archived') {
+                if ($officialId === 0 && $termStart !== null && $termEnd !== null) {
+                    $termDuplicateStmt = $conn->prepare('SELECT id FROM users WHERE role = ? AND LOWER(TRIM(position)) = LOWER(TRIM(?)) AND term_start = ? AND term_end = ? AND (resident_id = ? OR (LOWER(TRIM(first_name)) = LOWER(TRIM(?)) AND LOWER(TRIM(last_name)) = LOWER(TRIM(?)))) LIMIT 1');
+                    $termDuplicateStmt->bind_param('ssssiss', $role, $position, $termStart, $termEnd, $residentId, $firstName, $lastName);
+                    $termDuplicateStmt->execute();
+                    $duplicateTerm = $termDuplicateStmt->get_result()->fetch_assoc();
+                    $termDuplicateStmt->close();
+                    if ($duplicateTerm) {
+                        $officialError = 'A personnel record already exists for this official, position, and term.';
+                    }
+                }
+                if ($officialError === '' && $status !== 'Archived') {
                     $capacityStmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE role = ? AND status <> 'Archived' AND id <> ?");
                     $capacityStmt->bind_param('si', $role, $officialId);
                     $capacityStmt->execute();
@@ -327,7 +367,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
                     }
                 }
                 if ($officialError === '' && $role === 'staff' && $status !== 'Archived') {
-                    $positionStmt = $conn->prepare("SELECT id FROM users WHERE role = 'staff' AND status <> 'Archived' AND LOWER(TRIM(position)) = LOWER(TRIM(?)) AND id <> ? LIMIT 1");
+                    $positionStmt = $conn->prepare("SELECT id FROM users WHERE role = 'staff' AND status = 'Active' AND LOWER(TRIM(position)) = LOWER(TRIM(?)) AND id <> ? LIMIT 1");
                     $positionStmt->bind_param('si', $position, $officialId);
                     $positionStmt->execute();
                     $duplicatePosition = $positionStmt->get_result()->fetch_assoc();
@@ -382,8 +422,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
                 $releaseStmt->close();
                 $capacityLockAcquired = false;
             }
-            logActivity($conn, 'updated', 'users', 'Updated official account details.', $officialId);
-            header('Location: ' . personnelReturnUrl($_POST, 'saved'));
+            logActivity($conn, 'updated', 'users', $isNewTerm ? 'Added a new term for a barangay official.' : 'Updated official account details.', $officialId);
+            $returnState = $_POST;
+            if ($isNewTerm) {
+                $returnState['official_view'] = 'active';
+                $returnState['official_status_filter'] = 'Active';
+            }
+            header('Location: ' . personnelReturnUrl($returnState, 'saved'));
             exit;
         } elseif ($officialError === '') {
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
@@ -440,6 +485,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
         'term_end' => $_POST['term_end'] ?? '',
         'position' => $_POST['position'] ?? '',
         'resident_id' => $_POST['resident_id'] ?? '',
+        'new_term' => $isNewTermMode,
     ];
 }
 
@@ -460,13 +506,102 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'ar
             $archiveStmt->close();
             if ($archived) {
                 logActivity($conn, 'updated', 'users', 'Archived personnel account.', (int)$officialId);
-                header('Location: ' . personnelReturnUrl($_POST, 'archived'));
+                $returnState = $_POST;
+                if ($officialRole === 'staff') {
+                    $returnState['official_view'] = 'archived';
+                }
+                header('Location: ' . personnelReturnUrl($returnState, 'archived'));
                 exit;
             }
             $officialError = 'The personnel account could not be archived. It may already be archived or no longer exist.';
         } catch (Throwable $exception) {
             error_log('Personnel archive failed: ' . $exception->getMessage());
             $officialError = 'The personnel account could not be archived. Please try again.';
+        }
+    }
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'restore_official') {
+    $officialId = filter_var($_POST['official_id'] ?? null, FILTER_VALIDATE_INT);
+    $officialRole = (string)($_POST['role'] ?? '');
+    $personnelLimits = ['staff' => 11, 'health_worker' => 15, 'security_force' => 10];
+    if ($officialId === false || $officialId <= 0 || !isset($personnelLimits[$officialRole])) {
+        $officialError = 'Choose a valid archived personnel account to restore.';
+    } else {
+        $lockName = 'bms_personnel_capacity';
+        $lockAcquired = false;
+        try {
+            $lockStmt = $conn->prepare('SELECT GET_LOCK(?, 5)');
+            $lockStmt->bind_param('s', $lockName);
+            $lockStmt->execute();
+            $lockAcquired = (int)$lockStmt->get_result()->fetch_row()[0] === 1;
+            $lockStmt->close();
+
+            if (!$lockAcquired) {
+                $officialError = 'Personnel records are being updated. Please try again.';
+            } else {
+                $personStmt = $conn->prepare("SELECT position, term_end FROM users WHERE id = ? AND role = ? AND status = 'Archived' LIMIT 1");
+                $personStmt->bind_param('is', $officialId, $officialRole);
+                $personStmt->execute();
+                $person = $personStmt->get_result()->fetch_assoc();
+                $personStmt->close();
+
+                if (!$person) {
+                    $officialError = 'This account is no longer archived or could not be found.';
+                } elseif (!empty($person['term_end']) && $person['term_end'] < date('Y-m-d')) {
+                    $officialError = 'This term has ended. Use Add New Term to enter a new term before restoring this account.';
+                } else {
+                    $capacityStmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE role = ? AND status <> 'Archived' AND id <> ?");
+                    $capacityStmt->bind_param('si', $officialRole, $officialId);
+                    $capacityStmt->execute();
+                    $activeCount = (int)$capacityStmt->get_result()->fetch_row()[0];
+                    $capacityStmt->close();
+
+                    if ($activeCount >= $personnelLimits[$officialRole]) {
+                        $officialError = 'The limit of ' . $personnelLimits[$officialRole] . ' non-archived accounts for this personnel type has been reached. Archive another account before restoring this one.';
+                    } elseif ($officialRole === 'staff') {
+                        $positionStmt = $conn->prepare("SELECT id FROM users WHERE role = 'staff' AND status = 'Active' AND LOWER(TRIM(position)) = LOWER(TRIM(?)) AND id <> ? LIMIT 1");
+                        $position = (string)($person['position'] ?? '');
+                        $positionStmt->bind_param('si', $position, $officialId);
+                        $positionStmt->execute();
+                        $activePositionExists = $positionStmt->get_result()->fetch_assoc();
+                        $positionStmt->close();
+                        if ($activePositionExists) {
+                            $officialError = 'Another active official already holds this position. Resolve the position conflict before restoring this account.';
+                        }
+                    }
+                }
+
+                if ($officialError === '') {
+                    $restoreStmt = $conn->prepare("UPDATE users SET status = 'Active' WHERE id = ? AND role = ? AND status = 'Archived'");
+                    $restoreStmt->bind_param('is', $officialId, $officialRole);
+                    $restoreStmt->execute();
+                    $restored = $restoreStmt->affected_rows === 1;
+                    $restoreStmt->close();
+
+                    if (!$restored) {
+                        $officialError = 'This account could not be restored. Please refresh the page and try again.';
+                    }
+                }
+            }
+        } catch (Throwable $exception) {
+            error_log('Personnel restore failed: ' . $exception->getMessage());
+            $officialError = 'The personnel account could not be restored. Please try again.';
+        } finally {
+            if ($lockAcquired) {
+                $releaseStmt = $conn->prepare('SELECT RELEASE_LOCK(?)');
+                $releaseStmt->bind_param('s', $lockName);
+                $releaseStmt->execute();
+                $releaseStmt->close();
+            }
+        }
+
+        if ($officialError === '') {
+            logActivity($conn, 'updated', 'users', 'Restored archived personnel account.', (int)$officialId);
+            $returnState = $_POST;
+            $returnState['official_view'] = 'active';
+            $returnState['official_status_filter'] = 'Active';
+            header('Location: ' . personnelReturnUrl($returnState, 'restored'));
+            exit;
         }
     }
 }
@@ -512,13 +647,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form_type'] ?? '') === 'of
 
 $photoSuccess = isset($_GET['photo']) && $_GET['photo'] === 'uploaded';
 $personnelPageState = personnelPageState(
-    $_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['form_type'] ?? '', ['admin_account', 'official_account'], true)
+    $_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['form_type'] ?? '', ['admin_account', 'official_account', 'archive_official', 'restore_official'], true)
         ? $_POST
         : $_GET
 );
 $officialSearch = $personnelPageState['official_search'];
 $officialStatusFilter = $personnelPageState['official_status_filter'];
 $officialRoleFilter = $personnelPageState['official_role_filter'];
+$officialView = $personnelPageState['official_view'];
 $officialPage = $personnelPageState['official_page'];
 $healthWorkerPage = $personnelPageState['health_worker_page'];
 $securityForcePage = $personnelPageState['security_force_page'];
@@ -580,12 +716,26 @@ function fetchPersonnelPage(mysqli $conn, string $role, string $search, string $
 }
 
 $admins = $conn->query("SELECT id, first_name, last_name, username, email, status FROM users WHERE role = 'admin' ORDER BY id ASC");
-$officialsData = $officialRoleFilter === 'all' || $officialRoleFilter === 'staff' ? fetchPersonnelPage($conn, 'staff', $officialSearch, $officialStatusFilter, $officialPage, $officialsPerPage) : ['rows' => $conn->query('SELECT id, first_name, last_name, username, role, email, status, term, position, photo_path, photo_data IS NOT NULL AS has_photo_data FROM users WHERE role = "staff" AND 1 = 0'), 'total' => 0, 'page' => 1, 'total_pages' => 1];
+$officialTabStatuses = ['active' => 'Active', 'archived' => 'Archived', 'history' => 'Inactive'];
+$officialTabStatus = $officialTabStatuses[$officialView];
+$officialsData = $officialRoleFilter === 'all' || $officialRoleFilter === 'staff' ? fetchPersonnelPage($conn, 'staff', $officialSearch, $officialTabStatus, $officialPage, $officialsPerPage) : ['rows' => $conn->query('SELECT id, first_name, last_name, username, role, email, status, term, position, photo_path, photo_data IS NOT NULL AS has_photo_data FROM users WHERE role = "staff" AND 1 = 0'), 'total' => 0, 'page' => 1, 'total_pages' => 1];
+$officialEmptyMessage = [
+    'active' => 'No active barangay officials found.',
+    'archived' => 'No archived barangay officials found.',
+    'history' => 'No previous service records found.',
+][$officialView];
 $healthWorkersData = $officialRoleFilter === 'all' || $officialRoleFilter === 'health_worker' ? fetchPersonnelPage($conn, 'health_worker', $officialSearch, $officialStatusFilter, $healthWorkerPage, $officialsPerPage) : ['rows' => $conn->query('SELECT id, first_name, last_name, username, role, email, status, term, position, photo_path, photo_data IS NOT NULL AS has_photo_data FROM users WHERE role = "health_worker" AND 1 = 0'), 'total' => 0, 'page' => 1, 'total_pages' => 1];
 $securityForcesData = $officialRoleFilter === 'all' || $officialRoleFilter === 'security_force' ? fetchPersonnelPage($conn, 'security_force', $officialSearch, $officialStatusFilter, $securityForcePage, $officialsPerPage) : ['rows' => $conn->query('SELECT id, first_name, last_name, username, role, email, status, term, position, photo_path, photo_data IS NOT NULL AS has_photo_data FROM users WHERE role = "security_force" AND 1 = 0'), 'total' => 0, 'page' => 1, 'total_pages' => 1];
 $officials = $officialsData['rows'];
 $healthWorkers = $healthWorkersData['rows'];
 $securityForces = $securityForcesData['rows'];
+$officialTabCounts = ['Active' => 0, 'Archived' => 0, 'Inactive' => 0];
+$officialTabCountResult = $conn->query("SELECT status, COUNT(*) AS total FROM users WHERE role = 'staff' GROUP BY status");
+while ($statusCount = $officialTabCountResult->fetch_assoc()) {
+    if (isset($officialTabCounts[$statusCount['status']])) {
+        $officialTabCounts[$statusCount['status']] = (int)$statusCount['total'];
+    }
+}
 $totalOfficials = (int)($conn->query("SELECT COUNT(*) FROM users WHERE role IN ('staff', 'health_worker', 'security_force')")->fetch_row()[0] ?? 0);
 $totalBarangayOfficials = $personnelSlotCounts['staff'];
 $totalAdmins = (int)($conn->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetch_row()[0] ?? 0);
@@ -610,7 +760,13 @@ function renderPersonnelTable(mysqli_result $people, string $title, string $icon
             $archiveButton = $person['status'] !== 'Archived'
                 ? ' ' . personnelArchiveForm((int)$person['id'], (string)$person['role'], $personName, $pageParam, $pageState)
                 : '';
-            echo '</td><td>' . h($personName) . '</td><td>' . h($person['position'] ?: 'Not set') . '</td><td>' . h($person['email']) . '</td><td>' . h($person['term'] ?: 'Not set') . (!empty($person['term_end']) ? '<br><small class="text-muted">Ends ' . h(date('M d, Y', strtotime($person['term_end']))) . '</small>' : '') . '</td><td><span class="badge ' . ($person['status'] === 'Active' ? 'bg-success' : 'bg-secondary') . '">' . h($person['status']) . '</span></td><td class="text-nowrap"><a href="record_view.php?type=personnel&amp;id=' . (int)$person['id'] . '" class="btn btn-sm btn-outline-primary">View</a> <a href="' . h(personnelEditUrl((int)$person['id'], $pageParam, $pageState)) . '" class="btn btn-sm btn-outline-secondary">Edit</a>' . $archiveButton . '</td></tr>';
+            $termHasEnded = !empty($person['term_end']) && $person['term_end'] < date('Y-m-d');
+            $restoreButton = $person['status'] === 'Archived'
+                ? ($termHasEnded
+                    ? ' <span class="badge bg-secondary">Term ended</span>'
+                    : ' ' . personnelRestoreForm((int)$person['id'], (string)$person['role'], $personName, $pageParam, $pageState))
+                : '';
+            echo '</td><td>' . h($personName) . '</td><td>' . h($person['position'] ?: 'Not set') . '</td><td>' . h($person['email']) . '</td><td>' . h($person['term'] ?: 'Not set') . (!empty($person['term_end']) ? '<br><small class="text-muted">Ends ' . h(date('M d, Y', strtotime($person['term_end']))) . '</small>' : '') . '</td><td><span class="badge ' . ($person['status'] === 'Active' ? 'bg-success' : 'bg-secondary') . '">' . h($person['status']) . '</span></td><td class="official-action-buttons"><a href="record_view.php?type=personnel&amp;id=' . (int)$person['id'] . '" class="btn btn-sm btn-outline-primary">View</a> <a href="' . h(personnelEditUrl((int)$person['id'], $pageParam, $pageState)) . '" class="btn btn-sm btn-outline-secondary">Edit</a>' . $archiveButton . $restoreButton . '</td></tr>';
         }
     }
     echo '</tbody></table></div></div></div></div>';
@@ -681,6 +837,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             <?php renderToast('Official photo uploaded successfully.'); ?>
         <?php elseif (isset($_GET['archived'])): ?>
             <?php renderToast('Personnel account archived successfully.'); ?>
+        <?php elseif (isset($_GET['restored'])): ?>
+            <?php renderToast('Personnel account restored successfully.'); ?>
         <?php elseif (isset($_GET['saved'])): ?>
             <?php renderToast('Official account saved successfully.'); ?>
         <?php elseif (($_GET['msg'] ?? '') === 'delete_disabled'): ?>
@@ -695,6 +853,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                         <h3><i class="fa-solid fa-magnifying-glass"></i> Search and Filter Personnel</h3>
                     </div>
                     <form method="get" action="officials.php" class="row g-3 align-items-end">
+                        <input type="hidden" name="official_view" value="<?php echo h($officialView); ?>">
                         <div class="col-md-4">
                             <label class="form-label" for="officialSearch">Search</label>
                             <input class="form-control" id="officialSearch" type="search" name="official_search" value="<?php echo h($officialSearch); ?>" placeholder="Name, email, username, position">
@@ -716,6 +875,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                                 <option value="Inactive" <?php echo $officialStatusFilter === 'Inactive' ? 'selected' : ''; ?>>Inactive</option>
                                 <option value="Archived" <?php echo $officialStatusFilter === 'Archived' ? 'selected' : ''; ?>>Archived</option>
                             </select>
+                            <small class="text-muted">Officials use the tabs below; this status filter applies to other personnel.</small>
                         </div>
                         <div class="col-md-2">
                             <button type="submit" class="btn btn-primary w-100"><i class="fa-solid fa-filter"></i> Filter</button>
@@ -834,7 +994,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
             <div class="col-12">
                 <div class="content-card">
                     <div class="card-header-custom">
-                        <h3><i class="fa-solid fa-user-plus"></i> <?php echo $editOfficial ? 'Edit Personnel' : 'Add Barangay Personnel'; ?></h3>
+                        <h3><i class="fa-solid <?php echo $isNewTermMode ? 'fa-calendar-plus' : 'fa-user-plus'; ?>"></i> <?php echo $isNewTermMode ? 'Add New Term' : ($editOfficial ? 'Edit Personnel' : 'Add Barangay Personnel'); ?></h3>
                     </div>
                     <form method="post" action="officials.php" enctype="multipart/form-data" class="row g-3">
                         <?php echo csrfField(); ?>
@@ -844,20 +1004,21 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                             <input type="hidden" name="<?php echo h($stateKey); ?>" value="<?php echo h((string)$stateValue); ?>">
                         <?php endforeach; ?>
                         <input type="hidden" name="return_section" value="<?php echo h($_POST['return_section'] ?? $_GET['return_section'] ?? ''); ?>">
+                        <?php if ($isNewTermMode): ?><input type="hidden" name="new_term" value="1"><?php endif; ?>
                         <div class="col-md-3"><label class="form-label" for="officialFirstName">First Name</label><input class="form-control" id="officialFirstName" name="first_name" required value="<?php echo h($editOfficial['first_name'] ?? ''); ?>" placeholder="First Name"></div>
                         <div class="col-md-3"><label class="form-label" for="officialLastName">Last Name</label><input class="form-control" id="officialLastName" name="last_name" required value="<?php echo h($editOfficial['last_name'] ?? ''); ?>" placeholder="Last Name"></div>
                         <div class="col-md-6"><label class="form-label" for="officialResidentId">Resident Record *</label><select class="form-select" id="officialResidentId" name="resident_id" required><option value="">Select a registered resident</option><?php foreach ($personnelResidents as $residentOption): ?><option value="<?php echo (int)$residentOption['id']; ?>"<?php echo (int)($editOfficial['resident_id'] ?? $_POST['resident_id'] ?? 0) === (int)$residentOption['id'] ? ' selected' : ''; ?>><?php echo h(trim(implode(' ', array_filter([$residentOption['last_name'] . ',', $residentOption['first_name'], $residentOption['middle_name'], $residentOption['suffix']])) . ' (' . $residentOption['resident_number'] . ')')); ?></option><?php endforeach; ?></select><small class="text-muted">Officials and personnel must be registered in the Residents list.</small></div>
                         <div class="col-md-3"><label class="form-label" for="officialUsername">Username</label><input class="form-control" id="officialUsername" name="username" required value="<?php echo h($editOfficial['username'] ?? ''); ?>" placeholder="Username"></div>
                         <div class="col-md-3"><label class="form-label" for="officialEmail">Email</label><input type="email" class="form-control" id="officialEmail" name="email" required value="<?php echo h($editOfficial['email'] ?? ''); ?>" placeholder="Email Address"></div>
                         <input type="hidden" name="term" value="<?php echo h($editOfficial['term'] ?? ''); ?>">
-                        <div class="col-md-3"><label class="form-label" for="officialTermStart">Term Start</label><input type="date" class="form-control" id="officialTermStart" name="term_start" value="<?php echo h($editOfficial['term_start'] ?? ''); ?>"></div>
-                        <div class="col-md-3"><label class="form-label" for="officialTermEnd">Term End</label><input type="date" class="form-control" id="officialTermEnd" name="term_end" value="<?php echo h($editOfficial['term_end'] ?? ''); ?>"><small class="text-muted">Automatically set to Inactive after this date. Archive to free a personnel slot.</small></div>
-                        <div class="col-md-3"><label class="form-label" for="officialType">Personnel Type</label><select class="form-select" id="officialType" name="role" required><option value="staff"<?php echo ($editOfficial['role'] ?? 'staff') === 'staff' ? ' selected' : ''; ?>>Barangay Official</option><option value="health_worker"<?php echo ($editOfficial['role'] ?? '') === 'health_worker' ? ' selected' : ''; ?>>Barangay Health Worker</option><option value="security_force"<?php echo ($editOfficial['role'] ?? '') === 'security_force' ? ' selected' : ''; ?>>Barangay Security Force</option></select></div>
+                        <div class="col-md-3"><label class="form-label" for="officialTermStart">Term Start</label><input type="date" class="form-control" id="officialTermStart" name="term_start" value="<?php echo h($editOfficial['term_start'] ?? ''); ?>"<?php echo $isNewTermMode ? ' required' : ''; ?>></div>
+                        <div class="col-md-3"><label class="form-label" for="officialTermEnd">Term End</label><input type="date" class="form-control" id="officialTermEnd" name="term_end" value="<?php echo h($editOfficial['term_end'] ?? ''); ?>"<?php echo $isNewTermMode ? ' required' : ''; ?>><small class="text-muted"><?php echo $isNewTermMode ? 'Enter the newly elected term dates.' : 'Automatically set to Inactive after this date. Archive to free a personnel slot.'; ?></small></div>
+                        <div class="col-md-3"><label class="form-label" for="officialType">Personnel Type</label><?php if ($isNewTermMode): ?><input type="hidden" name="role" value="staff"><?php endif; ?><select class="form-select" id="officialType" name="role"<?php echo $isNewTermMode ? ' disabled' : ' required'; ?>><option value="staff"<?php echo ($editOfficial['role'] ?? 'staff') === 'staff' ? ' selected' : ''; ?>>Barangay Official</option><option value="health_worker"<?php echo ($editOfficial['role'] ?? '') === 'health_worker' ? ' selected' : ''; ?>>Barangay Health Worker</option><option value="security_force"<?php echo ($editOfficial['role'] ?? '') === 'security_force' ? ' selected' : ''; ?>>Barangay Security Force</option></select></div>
                         <div class="col-md-3"><label class="form-label" for="officialPosition">Position</label><input class="form-control" id="officialPosition" name="position" required value="<?php echo h($editOfficial['position'] ?? ''); ?>" placeholder="e.g. Barangay Captain"></div>
                         <div class="col-md-3"><label class="form-label" for="officialStatus">Status</label><select class="form-select" id="officialStatus" name="status"><option value="Active"<?php echo ($editOfficial['status'] ?? 'Active') === 'Active' ? ' selected' : ''; ?>>Active</option><option value="Inactive"<?php echo ($editOfficial['status'] ?? '') === 'Inactive' ? ' selected' : ''; ?>>Inactive</option><option value="Archived"<?php echo ($editOfficial['status'] ?? '') === 'Archived' ? ' selected' : ''; ?>>Archived</option></select><small class="text-muted">Inactive records still use a slot. Archive to make the position available.</small></div>
                         <div class="col-md-3"><label class="form-label" for="officialPassword">Password <?php echo $editOfficial ? '(optional)' : ''; ?></label><input type="password" class="form-control" id="officialPassword" name="password"<?php echo $editOfficial ? '' : ' required'; ?> placeholder="<?php echo $editOfficial ? 'Leave blank to keep current' : 'At least 6 characters'; ?>"></div>
                         <div class="col-md-6"><label class="form-label" for="officialPhoto">Official Photo</label><input type="file" class="form-control" id="officialPhoto" name="official_photo" accept="image/jpeg,image/png,image/webp"><small class="text-muted">JPG, PNG, or WEBP up to 5 MB.</small></div>
-                        <div class="col-12"><button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> <?php echo $editOfficial ? 'Update Personnel' : 'Add Personnel'; ?></button><?php if ($editOfficial): ?><a href="officials.php" class="btn btn-secondary ms-2">Cancel Edit</a><?php endif; ?></div>
+                        <div class="col-12"><button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> <?php echo $isNewTermMode ? 'Save New Term' : ($editOfficial ? 'Update Personnel' : 'Add Personnel'); ?></button><?php if ($editOfficial): ?><a href="<?php echo h('officials.php?' . http_build_query(array_merge($personnelPageState, ['official_view' => $isNewTermMode ? 'archived' : $officialView])) . '#officials-list'); ?>" class="btn btn-secondary ms-2">Cancel</a><?php endif; ?></div>
                     </form>
                 </div>
             </div>
@@ -894,6 +1055,26 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
                     </div>
 
+                    <?php if ($officialRoleFilter === 'all' || $officialRoleFilter === 'staff'): ?>
+                    <nav class="official-status-tabs" aria-label="Barangay officials records">
+                        <?php
+                        $officialTabs = [
+                            'active' => ['label' => 'Active Officials', 'icon' => 'fa-user-check', 'count' => $officialTabCounts['Active']],
+                            'archived' => ['label' => 'Archived Officials', 'icon' => 'fa-box-archive', 'count' => $officialTabCounts['Archived']],
+                            'history' => ['label' => 'Service History', 'icon' => 'fa-clock-rotate-left', 'count' => $officialTabCounts['Inactive']],
+                        ];
+                        foreach ($officialTabs as $tabKey => $tab): ?>
+                            <a class="official-status-tab<?php echo $officialView === $tabKey ? ' is-active' : ''; ?>"
+                               href="officials.php?<?php echo h(http_build_query(array_merge($personnelPageState, ['official_view' => $tabKey, 'official_page' => 1]))); ?>#officials-list"
+                               <?php echo $officialView === $tabKey ? 'aria-current="page"' : ''; ?>>
+                                <i class="fa-solid <?php echo h($tab['icon']); ?>" aria-hidden="true"></i>
+                                <span><?php echo h($tab['label']); ?></span>
+                                <span class="official-status-tab__count"><?php echo (int)$tab['count']; ?></span>
+                            </a>
+                        <?php endforeach; ?>
+                    </nav>
+                    <?php endif; ?>
+
                     <div class="table-responsive">
 
                         <table class="table align-middle">
@@ -924,7 +1105,7 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                                 <?php if ($officials->num_rows === 0): ?>
 
                                     <tr>
-                                        <td colspan="7">No officials found.</td>
+                                        <td colspan="7"><?php echo h($officialEmptyMessage); ?></td>
                                     </tr>
 
                                 <?php else: ?>
@@ -958,10 +1139,25 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
                                                 </span>
                                             </td>
 
-                                            <td class="text-nowrap">
+                                            <td class="official-action-buttons">
                                                 <a href="record_view.php?type=personnel&amp;id=<?php echo (int)$official['id']; ?>" class="btn btn-sm btn-outline-primary">View</a>
-                                                <a href="<?php echo h(personnelEditUrl((int)$official['id'], 'official_page', $personnelPageState)); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                                                <?php if ($official['status'] !== 'Archived'): ?>
+                                                <?php if ($officialView === 'archived'): ?>
+                                                    <?php
+                                                    $termHasEnded = !empty($official['term_end']) && $official['term_end'] < date('Y-m-d');
+                                                    $newTermUrl = 'officials.php?' . http_build_query(array_merge($personnelPageState, [
+                                                        'edit' => (int)$official['id'],
+                                                        'new_term' => 1,
+                                                        'return_section' => 'official_page',
+                                                    ])) . '#personnel-form';
+                                                    ?>
+                                                    <?php if (!$termHasEnded): ?>
+                                                        <?php echo personnelRestoreForm((int)$official['id'], 'staff', trim($official['first_name'] . ' ' . $official['last_name']), 'official_page', $personnelPageState); ?>
+                                                    <?php else: ?>
+                                                        <span class="badge bg-secondary">Term ended</span>
+                                                    <?php endif; ?>
+                                                    <a href="<?php echo h($newTermUrl); ?>" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-calendar-plus" aria-hidden="true"></i> Add New Term</a>
+                                                <?php else: ?>
+                                                    <a href="<?php echo h(personnelEditUrl((int)$official['id'], 'official_page', $personnelPageState)); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
                                                     <?php echo personnelArchiveForm((int)$official['id'], 'staff', trim($official['first_name'] . ' ' . $official['last_name']), 'official_page', $personnelPageState); ?>
                                                 <?php endif; ?>
                                             </td>
@@ -999,37 +1195,62 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
 
 </div>
 
-<dialog class="personnel-archive-dialog" id="personnelArchiveDialog" aria-labelledby="personnelArchiveTitle" aria-describedby="personnelArchiveDescription">
+<dialog class="personnel-archive-dialog" id="personnelActionDialog" aria-labelledby="personnelActionTitle" aria-describedby="personnelActionDescription">
     <div class="personnel-archive-dialog__icon" aria-hidden="true">
-        <i class="fa-solid fa-box-archive"></i>
+        <i class="fa-solid fa-box-archive" id="personnelActionIcon"></i>
     </div>
-    <h2 id="personnelArchiveTitle">Archive personnel?</h2>
-    <p class="personnel-archive-dialog__person" id="personnelArchiveName"></p>
-    <p id="personnelArchiveDescription">This account will be marked as archived and won’t appear among active personnel. Its personnel slot will be available again.</p>
+    <p class="personnel-archive-dialog__eyebrow">BARANGAY MANAGEMENT SYSTEM</p>
+    <h2 id="personnelActionTitle">Archive this personnel?</h2>
+    <p class="personnel-archive-dialog__person" id="personnelActionName"></p>
+    <p id="personnelActionDescription">This account will be moved to Archived Officials. Its personnel slot will be available again.</p>
     <div class="personnel-archive-dialog__note">
         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-        <span>You can still find archived accounts by filtering the list by status.</span>
+        <span id="personnelActionNote">You can restore this account later if its term is still valid and its position is available.</span>
     </div>
     <div class="personnel-archive-dialog__actions">
-        <button type="button" class="btn btn-outline-secondary" id="cancelPersonnelArchive">Cancel</button>
-        <button type="button" class="btn btn-danger" id="confirmPersonnelArchive"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive account</button>
+        <button type="button" class="btn btn-outline-secondary" id="cancelPersonnelAction">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirmPersonnelAction"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive account</button>
     </div>
 </dialog>
 
 <script>
 (() => {
-    const dialog = document.getElementById('personnelArchiveDialog');
-    const personName = document.getElementById('personnelArchiveName');
-    const cancelButton = document.getElementById('cancelPersonnelArchive');
-    const confirmButton = document.getElementById('confirmPersonnelArchive');
-    let pendingArchiveForm = null;
+    const dialog = document.getElementById('personnelActionDialog');
+    const personName = document.getElementById('personnelActionName');
+    const title = document.getElementById('personnelActionTitle');
+    const description = document.getElementById('personnelActionDescription');
+    const note = document.getElementById('personnelActionNote');
+    const icon = document.getElementById('personnelActionIcon');
+    const cancelButton = document.getElementById('cancelPersonnelAction');
+    const confirmButton = document.getElementById('confirmPersonnelAction');
+    let pendingForm = null;
 
-    document.querySelectorAll('[data-personnel-archive-form]').forEach((form) => {
+    document.querySelectorAll('[data-personnel-confirm-form]').forEach((form) => {
         form.addEventListener('submit', (event) => {
             if (typeof dialog.showModal !== 'function') return;
             event.preventDefault();
-            pendingArchiveForm = form;
+            const restoring = form.dataset.action === 'restore';
+            const isOfficial = form.dataset.personnelRole === 'staff';
+            pendingForm = form;
+            dialog.classList.toggle('is-restoring', restoring);
             personName.textContent = form.dataset.personName || 'Selected personnel account';
+            title.textContent = restoring
+                ? (isOfficial ? 'Restore this official?' : 'Restore this personnel?')
+                : (isOfficial ? 'Archive this official?' : 'Archive this personnel?');
+            description.textContent = restoring
+                ? (isOfficial
+                    ? 'This account will return to the Active Officials list if its term and position are still valid.'
+                    : 'This account will return to active personnel if its term and available capacity allow it.')
+                : (isOfficial
+                    ? 'This account will move to Archived Officials and its personnel slot will be available again.'
+                    : 'This account will be archived and its personnel slot will be available again.');
+            note.textContent = restoring
+                ? (isOfficial
+                    ? 'The system will check term dates, available capacity and active-position conflicts before restoring.'
+                    : 'The system will check term dates and available personnel capacity before restoring.')
+                : 'You can restore this account later if its term is still valid and its personnel slot is available.';
+            icon.className = 'fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive');
+            confirmButton.innerHTML = '<i class="fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive') + '" aria-hidden="true"></i> ' + (restoring ? 'Restore account' : 'Archive account');
             dialog.showModal();
             cancelButton.focus();
         });
@@ -1040,12 +1261,12 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         if (event.target === dialog) dialog.close();
     });
     confirmButton.addEventListener('click', () => {
-        if (!pendingArchiveForm) return;
+        if (!pendingForm) return;
         confirmButton.disabled = true;
-        pendingArchiveForm.submit();
+        pendingForm.submit();
     });
     dialog.addEventListener('close', () => {
-        pendingArchiveForm = null;
+        pendingForm = null;
         confirmButton.disabled = false;
     });
 })();
