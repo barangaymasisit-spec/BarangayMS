@@ -137,7 +137,7 @@ function personnelArchiveForm(int $officialId, string $role, string $personName,
 
     return '<form id="archive-personnel-' . $officialId . '" method="post" action="officials.php" class="d-inline" data-personnel-confirm-form data-action="archive" data-personnel-role="' . h($role) . '" data-person-name="' . h(trim($personName)) . '">'
         . $fields
-        . '<button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive</button>'
+        . '<button type="button" class="btn btn-sm btn-outline-danger" data-personnel-confirm-trigger><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive</button>'
         . '</form>';
 }
 
@@ -1325,7 +1325,6 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
     <h2 id="personnelActionTitle">Archive this personnel?</h2>
     <p class="personnel-archive-dialog__person" id="personnelActionName"><?php echo h($archiveDialogPersonName); ?></p>
     <p id="personnelActionDescription">This account will be moved to Archived Officials. Its personnel slot will be available again.</p>
-    <?php if ($archiveDialogShouldReopen): ?><p class="personnel-archive-dialog__validation" role="alert">Enter an archive reason of 1 to 500 characters.</p><?php endif; ?>
     <p class="personnel-archive-dialog__validation" id="personnelActionError" role="alert" hidden></p>
     <div class="personnel-archive-reason-field" id="personnelArchiveReasonField">
         <label for="personnelArchiveReason">Reason for archiving <span aria-hidden="true">*</span></label>
@@ -1477,10 +1476,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         });
     }
 
-    document.addEventListener('submit', (event) => {
-        const form = event.target.closest('[data-personnel-confirm-form]');
+    const openPersonnelDialog = (form) => {
         if (!form || typeof dialog.showModal !== 'function') return;
-        event.preventDefault();
         const restoring = form.dataset.action === 'restore';
         const isOfficial = form.dataset.personnelRole === 'staff';
         pendingForm = form;
@@ -1511,6 +1508,20 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         confirmButton.innerHTML = '<i class="fa-solid ' + (restoring ? 'fa-rotate-left' : 'fa-box-archive') + '" aria-hidden="true"></i> ' + (restoring ? 'Restore account' : 'Archive account');
         dialog.showModal();
         cancelButton.focus({preventScroll: true});
+    };
+
+    document.addEventListener('click', (event) => {
+        const trigger = event.target.closest('[data-personnel-confirm-trigger]');
+        if (!trigger) return;
+        event.preventDefault();
+        openPersonnelDialog(trigger.closest('[data-personnel-confirm-form]'));
+    });
+
+    document.addEventListener('submit', (event) => {
+        const form = event.target.closest('[data-personnel-confirm-form]');
+        if (!form || form.dataset.action !== 'restore' || typeof dialog.showModal !== 'function') return;
+        event.preventDefault();
+        openPersonnelDialog(form);
     });
 
     const sectionForLink = (link) => {
@@ -1641,6 +1652,8 @@ function renderPersonnelPagination(array $pageData, string $search, string $stat
         pendingForm = document.getElementById('archive-personnel-' + dialog.dataset.reopenArchiveId);
         archiveReason.required = false;
         archiveReason.setAttribute('aria-required', 'true');
+        archiveError.textContent = <?php echo json_encode($officialError); ?>;
+        archiveError.hidden = false;
         dialog.showModal();
         cancelButton.focus({preventScroll: true});
     }
