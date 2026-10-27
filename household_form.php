@@ -20,7 +20,7 @@ if ($id > 0) {
 }
 
 if ($household) {
-    $membersStmt = $conn->prepare('SELECT id, resident_number, first_name, middle_name, last_name, suffix, household_head, relationship_head FROM residents WHERE household_id = ? ORDER BY last_name, first_name');
+    $membersStmt = $conn->prepare("SELECT id, resident_number, first_name, middle_name, last_name, suffix, household_head, relationship_head FROM residents WHERE household_id = ? AND LOWER(TRIM(COALESCE(resident_status, ''))) <> 'deceased' ORDER BY last_name, first_name");
     $membersStmt->bind_param('s', $household['household_number']);
     $membersStmt->execute();
     $householdResidents = $membersStmt->get_result()->fetch_all(MYSQLI_ASSOC);

@@ -91,6 +91,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data['date_moved_out'] = trim($_POST['dateMovedOut'] ?? '');
     $data['move_reason'] = trim($_POST['moveReason'] ?? '');
     $data['account_status'] = trim($_POST['accountStatus'] ?? '');
+    $isDeceased = strcasecmp($data['resident_status'], 'Deceased') === 0;
+    $requestedHouseholdId = $data['household_id'];
+    $deceasedName = trim(implode(' ', array_filter([
+        $data['first_name'],
+        $data['middle_name'],
+        $data['last_name'],
+        $data['suffix'],
+    ], static fn($part) => trim((string)$part) !== '')));
+    if ($isDeceased) {
+        $data['household_id'] = '';
+        $data['household_head'] = '';
+        $data['relationship_head'] = '';
+        $data['is_archived'] = '1';
+        $data['archived_at'] = $resident['archived_at'] ?? date('Y-m-d H:i:s');
+        $data['archived_by_user_id'] = (string)($_SESSION['user_id'] ?? '');
+    }
 
     if ($postId === 0) {
         $numberCheck = $conn->prepare('SELECT id FROM residents WHERE resident_number = ? LIMIT 1');
@@ -153,34 +169,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!isset($_POST['bloodTypeHealth'])) {
             unset($data['blood_type_health']);
         }
-        // Build update statement
-        $cols = [];
-        $types = '';
-        $values = [];
-        foreach ($data as $col => $val) {
-            $cols[] = "$col = ?";
-            $types .= 's';
-            $values[] = $val;
+        $transactionStarted = false;
+        try {
+            $conn->begin_transaction();
+            $transactionStarted = true;
+            $currentStmt = $conn->prepare('SELECT household_id, first_name, middle_name, last_name, suffix FROM residents WHERE id = ? FOR UPDATE');
+            $currentStmt->bind_param('i', $postId);
+            $currentStmt->execute();
+            $currentResident = $currentStmt->get_result()->fetch_assoc();
+            $currentStmt->close();
+
+            if (!$currentResident) {
+                throw new RuntimeException('Resident record no longer exists.');
+            }
+
+            $cols = [];
+            $types = '';
+            $values = [];
+            foreach ($data as $col => $val) {
+                $cols[] = "$col = ?";
+                $types .= 's';
+                $values[] = $val;
+            }
+            $types .= 'i';
+            $values[] = $postId;
+            $sql = 'UPDATE residents SET ' . implode(', ', $cols) . ', last_updated = NOW() WHERE id = ?';
+            $stmt = $conn->prepare($sql);
+            $params = array_merge([$types], $values);
+            $refs = [];
+            foreach ($params as $k => $v) $refs[$k] = &$params[$k];
+            call_user_func_array([$stmt, 'bind_param'], $refs);
+            $stmt->execute();
+            $stmt->close();
+
+            if ($isDeceased && trim((string)$currentResident['household_id']) !== '') {
+                $formerHeadName = trim(implode(' ', array_filter([
+                    $currentResident['first_name'],
+                    $currentResident['middle_name'],
+                    $currentResident['last_name'],
+                    $currentResident['suffix'],
+                ], static fn($part) => trim((string)$part) !== '')));
+                $householdId = (string)$currentResident['household_id'];
+                clearHouseholdHeadReferences($conn, $householdId, $formerHeadName);
+            }
+
+            $conn->commit();
+            $transactionStarted = false;
+            logActivity($conn, 'updated', 'residents', 'Updated resident profile.', (int)$postId);
+            if ($isDeceased) {
+                logActivity($conn, 'archived', 'residents', 'Automatically archived resident after status changed to Deceased.', (int)$postId);
+            }
+            $returnQuery = http_build_query([
+                'msg' => 'updated',
+                'search' => $returnSearch,
+                'status_filter' => $isDeceased ? 'Deceased' : $returnStatusFilter,
+                'record_view' => $isDeceased ? 'archived' : 'active',
+                'page' => $returnPage,
+            ]);
+            header('Location: residents.php?' . $returnQuery . '#resident-records');
+            exit;
+        } catch (Throwable $exception) {
+            if ($transactionStarted) {
+                $conn->rollback();
+            }
+            error_log('Resident update failed: ' . $exception->getMessage());
+            $error = 'The resident changes could not be saved. Please try again.';
         }
-        $types .= 'i';
-        $values[] = $postId;
-        $sql = 'UPDATE residents SET ' . implode(', ', $cols) . ', last_updated = NOW() WHERE id = ?';
-        $stmt = $conn->prepare($sql);
-        $params = array_merge([$types], $values);
-        $refs = [];
-        foreach ($params as $k => $v) $refs[$k] = &$params[$k];
-        call_user_func_array([$stmt, 'bind_param'], $refs);
-        $stmt->execute();
-        $stmt->close();
-        logActivity($conn, 'updated', 'residents', 'Updated resident profile.', (int)$postId);
-        $returnQuery = http_build_query([
-            'msg' => 'updated',
-            'search' => $returnSearch,
-            'status_filter' => $returnStatusFilter,
-            'page' => $returnPage,
-        ]);
-        header('Location: residents.php?' . $returnQuery);
-        exit;
     } elseif ($error === '') {
         // Insert new resident
         $cols = array_keys($data);
@@ -197,27 +251,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $sql = 'INSERT INTO residents (' . implode(', ', $cols) . ', created_date) VALUES (' . implode(', ', $placeholders) . ', NOW())';
-        $stmt = $conn->prepare($sql);
-        if (!$stmt) {
-            error_log('Prepare failed: ' . $conn->error);
-            echo '<pre>Prepare failed: ' . htmlspecialchars($conn->error) . '\nSQL: ' . htmlspecialchars($sql) . '</pre>';
-            exit;
+        $newResidentId = 0;
+        $transactionStarted = false;
+        try {
+            $conn->begin_transaction();
+            $transactionStarted = true;
+            $stmt = $conn->prepare($sql);
+            $params = array_merge([$types], $values);
+            $refs = [];
+            foreach ($params as $k => $v) $refs[$k] = &$params[$k];
+            call_user_func_array([$stmt, 'bind_param'], $refs);
+            $stmt->execute();
+            $newResidentId = $conn->insert_id;
+            $stmt->close();
+
+            if ($isDeceased) {
+                clearHouseholdHeadReferences($conn, $requestedHouseholdId, $deceasedName);
+            }
+            $conn->commit();
+            $transactionStarted = false;
+        } catch (Throwable $exception) {
+            if ($transactionStarted) {
+                $conn->rollback();
+            }
+            error_log('Resident creation failed: ' . $exception->getMessage());
+            $error = 'The resident record could not be saved. Please try again.';
         }
 
-        $params = array_merge([$types], $values);
-        $refs = [];
-        foreach ($params as $k => $v) $refs[$k] = &$params[$k];
-        call_user_func_array([$stmt, 'bind_param'], $refs);
-        if (!$stmt->execute()) {
-            error_log('Execute failed: ' . $stmt->error);
-            echo '<pre>Execute failed: ' . htmlspecialchars($stmt->error) . '</pre>';
+        if ($error !== '') {
+            $blank = array_fill_keys(array_column($conn->query('SELECT * FROM residents LIMIT 0')->fetch_fields(), 'name'), null);
+            $resident = array_merge($resident ?? $blank, $data, ['id' => $postId]);
+        } else {
+            logActivity($conn, 'created', 'residents', 'Created resident profile.', (int)$newResidentId);
+            if ($isDeceased) {
+                logActivity($conn, 'archived', 'residents', 'Automatically archived resident after status was set to Deceased.', (int)$newResidentId);
+            }
+            header('Location: residents.php?' . http_build_query([
+                'msg' => 'created',
+                'record_view' => $isDeceased ? 'archived' : 'active',
+                'status_filter' => $isDeceased ? 'Deceased' : 'all',
+            ]) . '#resident-records');
             exit;
         }
-        $newResidentId = $conn->insert_id;
-        $stmt->close();
-        logActivity($conn, 'created', 'residents', 'Created resident profile.', (int)$newResidentId);
-        header('Location: residents.php?msg=created');
-        exit;
     }
 
     // Not saved: show the form again with what was typed.

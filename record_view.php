@@ -152,7 +152,7 @@ if ($record) {
                 'updated_at' => 'Last Updated',
             ],
         ];
-        $membersStmt = $conn->prepare("SELECT resident_number, first_name, middle_name, last_name, suffix, resident_status, household_head, relationship_head FROM residents WHERE household_id = ? ORDER BY household_head, last_name, first_name");
+        $membersStmt = $conn->prepare("SELECT resident_number, first_name, middle_name, last_name, suffix, resident_status, household_head, relationship_head FROM residents WHERE household_id = ? AND LOWER(TRIM(COALESCE(resident_status, ''))) <> 'deceased' ORDER BY household_head, last_name, first_name");
         $membersStmt->bind_param('s', $record['household_number']);
         $membersStmt->execute();
         $members = $membersStmt->get_result()->fetch_all(MYSQLI_ASSOC);

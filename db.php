@@ -249,6 +249,40 @@ function ensureResidentArchiveColumns(mysqli $conn): void {
     if ($conn->query("SHOW INDEX FROM residents WHERE Key_name = 'idx_residents_archive_status'")->num_rows === 0) {
         $conn->query('ALTER TABLE residents ADD KEY idx_residents_archive_status (is_archived, resident_status)');
     }
+
+    $conn->query("UPDATE residents member
+        INNER JOIN residents deceased
+            ON deceased.household_id = member.household_id
+            AND deceased.id <> member.id
+            AND member.household_head = CONCAT_WS(' ',
+                deceased.first_name,
+                NULLIF(TRIM(deceased.middle_name), ''),
+                deceased.last_name,
+                NULLIF(TRIM(deceased.suffix), '')
+            )
+        SET member.household_head = ''
+        WHERE LOWER(TRIM(COALESCE(deceased.resident_status, ''))) = 'deceased'
+            AND deceased.household_id IS NOT NULL
+            AND LOWER(TRIM(COALESCE(member.resident_status, ''))) <> 'deceased'");
+    if (databaseTableExists($conn, 'households')) {
+        $conn->query("UPDATE households household
+            INNER JOIN residents deceased
+                ON deceased.household_id = household.household_number
+                AND household.household_head = CONCAT_WS(' ',
+                    deceased.first_name,
+                    NULLIF(TRIM(deceased.middle_name), ''),
+                    deceased.last_name,
+                    NULLIF(TRIM(deceased.suffix), '')
+                )
+            SET household.household_head = ''
+            WHERE LOWER(TRIM(COALESCE(deceased.resident_status, ''))) = 'deceased'
+                AND deceased.household_id IS NOT NULL");
+    }
+    $conn->query("UPDATE residents
+        SET is_archived = 1, archived_at = COALESCE(archived_at, NOW()),
+            household_id = NULL, household_head = NULL, relationship_head = NULL
+        WHERE LOWER(TRIM(COALESCE(resident_status, ''))) = 'deceased'
+            AND (is_archived = 0 OR archived_at IS NULL OR household_id IS NOT NULL)");
 }
 
 /**

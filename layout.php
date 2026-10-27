@@ -316,6 +316,26 @@ function householdMembersSql(string $householdIdExpr): string {
     return "(SELECT COUNT(*) FROM residents hm WHERE hm.household_id = $householdIdExpr AND COALESCE(hm.resident_status, '') NOT IN ('Deceased', 'Moved Out'))";
 }
 
+function clearHouseholdHeadReferences(mysqli $conn, string $householdNumber, string $residentName): void {
+    $householdNumber = trim($householdNumber);
+    $residentName = trim($residentName);
+    if ($householdNumber === '' || $residentName === '') {
+        return;
+    }
+
+    $stmt = $conn->prepare("UPDATE residents SET household_head = '' WHERE household_id = ? AND household_head = ?");
+    $stmt->bind_param('ss', $householdNumber, $residentName);
+    $stmt->execute();
+    $stmt->close();
+
+    if (databaseTableExists($conn, 'households')) {
+        $stmt = $conn->prepare("UPDATE households SET household_head = '' WHERE household_number = ? AND household_head = ?");
+        $stmt->bind_param('ss', $householdNumber, $residentName);
+        $stmt->execute();
+        $stmt->close();
+    }
+}
+
 /**
  * Suggests known household heads while typing in $headInputId, and when one is
  * picked fills the household fields in $fieldIds (id, members, type, income => input id).

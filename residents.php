@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
     }
 
     if ($isRestore) {
-        $stmt = $conn->prepare('UPDATE residents SET is_archived = 0, archived_at = NULL, archived_by_user_id = NULL WHERE id = ? AND is_archived = 1');
+        $stmt = $conn->prepare("UPDATE residents SET is_archived = 0, archived_at = NULL, archived_by_user_id = NULL WHERE id = ? AND is_archived = 1 AND LOWER(TRIM(COALESCE(resident_status, ''))) <> 'deceased'");
         $stmt->bind_param('i', $residentId);
         $activity = 'restored';
         $message = 'Resident record restored.';
@@ -875,7 +875,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
                                                     'page' => $page,
                                                 ])); ?>" class="btn-edit resident-action-link" title="Edit Resident" aria-label="Edit resident record">Edit</a>
                                             <?php endif; ?>
-                                            <?php if ($canManageResidents): ?>
+                                            <?php if ($canManageResidents && ($recordView === 'active' || strcasecmp(trim((string)$resident['resident_status']), 'Deceased') !== 0)): ?>
                                                 <form method="post" class="resident-archive-form" onsubmit="return confirm('<?php echo $recordView === 'archived' ? 'Restore' : 'Archive'; ?> this resident record?');">
                                                     <?php echo csrfField(); ?>
                                                     <input type="hidden" name="action" value="<?php echo $recordView === 'archived' ? 'restore_resident' : 'archive_resident'; ?>">
