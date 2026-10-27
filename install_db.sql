@@ -176,6 +176,9 @@ CREATE TABLE IF NOT EXISTS `residents` (
   `medical_condition` TEXT DEFAULT NULL,
   `categories` TEXT DEFAULT NULL,
   `resident_status` VARCHAR(50) DEFAULT NULL,
+  `is_archived` TINYINT(1) NOT NULL DEFAULT 0,
+  `archived_at` DATETIME DEFAULT NULL,
+  `archived_by_user_id` INT UNSIGNED DEFAULT NULL,
   `date_registered` DATE DEFAULT NULL,
   `date_moved_in` DATE DEFAULT NULL,
   `date_moved_out` DATE DEFAULT NULL,
@@ -184,7 +187,8 @@ CREATE TABLE IF NOT EXISTS `residents` (
   `created_date` DATETIME DEFAULT NULL,
   `last_updated` DATETIME DEFAULT NULL,
   `photo_path` VARCHAR(255) DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_residents_archive_status` (`is_archived`, `resident_status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `households` (

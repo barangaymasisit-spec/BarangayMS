@@ -141,7 +141,8 @@ $returnUrl = 'residents.php?' . http_build_query([
     'page' => max(1, (int)($_GET['page'] ?? 1)),
     'search' => trim($_GET['search'] ?? ''),
     'status_filter' => $_GET['status_filter'] ?? 'all',
-]);
+    'record_view' => ($_GET['record_view'] ?? 'active') === 'archived' ? 'archived' : 'active',
+]) . '#resident-records';
 $editUrl = 'resident_form.php?' . http_build_query([
     'id' => (int)($resident['id'] ?? 0),
     'edit' => 1,

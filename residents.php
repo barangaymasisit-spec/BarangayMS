@@ -3,12 +3,56 @@ require_once __DIR__ . '/layout.php';
 
 $search = trim($_GET['search'] ?? '');
 $statusFilter = $_GET['status_filter'] ?? 'all';
+$canManageResidents = in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true);
+$recordView = $canManageResidents && ($_GET['record_view'] ?? 'active') === 'archived' ? 'archived' : 'active';
 $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 10;
 $isHealthWorker = ($_SESSION['role'] ?? '') === 'health_worker';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
-    header('Location: residents.php?msg=delete_disabled');
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['archive_resident', 'restore_resident'], true)) {
+    if (!$canManageResidents) {
+        http_response_code(403);
+        exit('You do not have permission to change resident archive status.');
+    }
+
+    $residentId = filter_var($_POST['resident_id'] ?? null, FILTER_VALIDATE_INT);
+    $isRestore = $_POST['action'] === 'restore_resident';
+    $redirectParams = [
+        'search' => trim((string)($_POST['search'] ?? '')),
+        'status_filter' => (string)($_POST['status_filter'] ?? 'all'),
+        'record_view' => $isRestore ? 'archived' : 'active',
+        'page' => max(1, (int)($_POST['page'] ?? 1)),
+    ];
+
+    if (!$residentId || $residentId <= 0) {
+        $redirectParams['msg'] = 'action_error';
+        header('Location: residents.php?' . http_build_query($redirectParams) . '#resident-records', true, 303);
+        exit;
+    }
+
+    if ($isRestore) {
+        $stmt = $conn->prepare('UPDATE residents SET is_archived = 0, archived_at = NULL, archived_by_user_id = NULL WHERE id = ? AND is_archived = 1');
+        $stmt->bind_param('i', $residentId);
+        $activity = 'restored';
+        $message = 'Resident record restored.';
+    } else {
+        $userId = (int)$_SESSION['user_id'];
+        $stmt = $conn->prepare('UPDATE residents SET is_archived = 1, archived_at = NOW(), archived_by_user_id = ? WHERE id = ? AND is_archived = 0');
+        $stmt->bind_param('ii', $userId, $residentId);
+        $activity = 'archived';
+        $message = 'Resident record archived.';
+    }
+    $stmt->execute();
+    $changed = $stmt->affected_rows === 1;
+    $stmt->close();
+
+    if ($changed) {
+        logActivity($conn, $activity, 'residents', $message, $residentId);
+        $redirectParams['msg'] = $isRestore ? 'restore_success' : 'archive_success';
+    } else {
+        $redirectParams['msg'] = 'action_error';
+    }
+    header('Location: residents.php?' . http_build_query($redirectParams) . '#resident-records', true, 303);
     exit;
 }
 
@@ -16,19 +60,19 @@ $fields = $isHealthWorker
     ? 'id, resident_number, first_name, middle_name, last_name, resident_status, blood_type_health, medical_condition, categories'
     : 'id, resident_number, first_name, middle_name, last_name, resident_status, mobile_number, email';
 
-$whereSql = '';
-$params = [];
-$types = '';
+$whereSql = ' WHERE is_archived = ?';
+$params = [$recordView === 'archived' ? 1 : 0];
+$types = 'i';
 
 if ($search !== '') {
     $searchLike = '%' . $search . '%';
-    $whereSql .= ' WHERE (first_name LIKE ? OR last_name LIKE ? OR resident_number LIKE ? OR email LIKE ? OR mobile_number LIKE ?)';
-    $params = [$searchLike, $searchLike, $searchLike, $searchLike, $searchLike];
-    $types = 'sssss';
+    $whereSql .= ' AND (first_name LIKE ? OR last_name LIKE ? OR resident_number LIKE ? OR email LIKE ? OR mobile_number LIKE ?)';
+    array_push($params, $searchLike, $searchLike, $searchLike, $searchLike, $searchLike);
+    $types .= 'sssss';
 }
 
 if ($statusFilter !== 'all') {
-    $whereSql .= ($whereSql === '' ? ' WHERE ' : ' AND ') . 'resident_status = ?';
+    $whereSql .= ' AND resident_status = ?';
     $params[] = $statusFilter;
     $types .= 's';
 }
@@ -98,6 +142,9 @@ $generatedResidentNumber = nextResidentNumber($conn);
             'created' => 'Resident record created.',
             'updated' => 'Resident record updated.',
             'delete_disabled' => 'Deleting resident records is disabled. You can view or edit the record instead.',
+            'archive_success' => 'Resident record archived.',
+            'restore_success' => 'Resident record restored.',
+            'action_error' => 'The resident record could not be updated. Refresh and try again.',
         ]); ?>
 
         <?php if (in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true)): ?>
@@ -722,7 +769,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
         </form>
         <?php endif; ?>
 
-        <section class="records-card">
+        <section class="records-card" id="resident-records">
 
             <div class="records-header">
 
@@ -731,7 +778,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
                     <p>View and manage all registered residents.</p>
                 </div>
 
-                <form class="records-search" method="get" action="residents.php">
+                <form class="records-search" method="get" action="residents.php#resident-records">
 
                     <label class="sr-only" for="searchResident">Search Resident</label>
 
@@ -748,6 +795,13 @@ $generatedResidentNumber = nextResidentNumber($conn);
                         <option value="Moved Out" <?php echo $statusFilter === 'Moved Out' ? 'selected' : ''; ?>>Moved Out</option>
                         <option value="Deceased" <?php echo $statusFilter === 'Deceased' ? 'selected' : ''; ?>>Deceased</option>
                     </select>
+
+                    <?php if ($canManageResidents): ?>
+                        <select name="record_view" aria-label="Filter by archive status">
+                            <option value="active" <?php echo $recordView === 'active' ? 'selected' : ''; ?>>Active Records</option>
+                            <option value="archived" <?php echo $recordView === 'archived' ? 'selected' : ''; ?>>Archived Records</option>
+                        </select>
+                    <?php endif; ?>
 
                     <button type="submit" class="btn save-btn">
                         <i class="fa-solid fa-magnifying-glass"></i>
@@ -775,7 +829,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
                                 <th scope="col">Mobile</th>
                                 <th scope="col">Email</th>
                             <?php endif; ?>
-                            <th scope="col">View / Edit</th>
+                            <th scope="col">Action</th>
                         </tr>
                     </thead>
 
@@ -809,9 +863,10 @@ $generatedResidentNumber = nextResidentNumber($conn);
                                                 'id' => (int)$resident['id'],
                                                 'search' => $search,
                                                 'status_filter' => $statusFilter,
+                                                'record_view' => $recordView,
                                                 'page' => $page,
                                             ])); ?>" class="btn-view resident-action-link" title="View Resident" aria-label="View resident record">View</a>
-                                            <?php if (in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true)): ?>
+                                            <?php if ($canManageResidents && $recordView === 'active'): ?>
                                                 <a href="<?php echo h('resident_form.php?' . http_build_query([
                                                     'id' => (int)$resident['id'],
                                                     'edit' => 1,
@@ -819,10 +874,20 @@ $generatedResidentNumber = nextResidentNumber($conn);
                                                     'status_filter' => $statusFilter,
                                                     'page' => $page,
                                                 ])); ?>" class="btn-edit resident-action-link" title="Edit Resident" aria-label="Edit resident record">Edit</a>
-                                            <?php else: ?>
-                                                <a href="javascript:void(0)" class="btn-edit resident-action-link disabled" aria-disabled="true" title="Editing is not available">Edit</a>
                                             <?php endif; ?>
-
+                                            <?php if ($canManageResidents): ?>
+                                                <form method="post" class="resident-archive-form" onsubmit="return confirm('<?php echo $recordView === 'archived' ? 'Restore' : 'Archive'; ?> this resident record?');">
+                                                    <?php echo csrfField(); ?>
+                                                    <input type="hidden" name="action" value="<?php echo $recordView === 'archived' ? 'restore_resident' : 'archive_resident'; ?>">
+                                                    <input type="hidden" name="resident_id" value="<?php echo (int)$resident['id']; ?>">
+                                                    <input type="hidden" name="search" value="<?php echo h($search); ?>">
+                                                    <input type="hidden" name="status_filter" value="<?php echo h($statusFilter); ?>">
+                                                    <input type="hidden" name="page" value="<?php echo (int)$page; ?>">
+                                                    <button type="submit" class="btn-archive resident-action-link">
+                                                        <?php echo $recordView === 'archived' ? 'Restore' : 'Archive'; ?>
+                                                    </button>
+                                                </form>
+                                            <?php endif; ?>
                                         </div>
                                     </td>
                                 </tr>
@@ -840,13 +905,13 @@ $generatedResidentNumber = nextResidentNumber($conn);
                     <span class="residents-page-status">Page <?php echo (int)$page; ?> of <?php echo (int)$totalPages; ?></span>
                     <div class="residents-pagination-actions">
                         <?php if ($page > 1): ?>
-                            <a class="residents-page-button" href="residents.php?search=<?php echo urlencode($search); ?>&status_filter=<?php echo urlencode($statusFilter); ?>&page=<?php echo (int)($page - 1); ?>">
+                            <a class="residents-page-button" href="residents.php?search=<?php echo urlencode($search); ?>&status_filter=<?php echo urlencode($statusFilter); ?>&record_view=<?php echo urlencode($recordView); ?>&page=<?php echo (int)($page - 1); ?>#resident-records">
                                 <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
                                 <span>Previous</span>
                             </a>
                         <?php endif; ?>
                         <?php if ($page < $totalPages): ?>
-                            <a class="residents-page-button" href="residents.php?search=<?php echo urlencode($search); ?>&status_filter=<?php echo urlencode($statusFilter); ?>&page=<?php echo (int)($page + 1); ?>">
+                            <a class="residents-page-button" href="residents.php?search=<?php echo urlencode($search); ?>&status_filter=<?php echo urlencode($statusFilter); ?>&record_view=<?php echo urlencode($recordView); ?>&page=<?php echo (int)($page + 1); ?>#resident-records">
                                 <span>Next</span>
                                 <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
                             </a>

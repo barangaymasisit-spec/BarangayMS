@@ -228,6 +228,29 @@ function ensureCertificateManagementColumns(mysqli $conn): void {
     }
 }
 
+function ensureResidentArchiveColumns(mysqli $conn): void {
+    if (!databaseTableExists($conn, 'residents')) {
+        return;
+    }
+
+    $columns = [];
+    foreach ($conn->query("SHOW COLUMNS FROM residents WHERE Field IN ('is_archived', 'archived_at', 'archived_by_user_id')")->fetch_all(MYSQLI_ASSOC) as $column) {
+        $columns[$column['Field']] = true;
+    }
+    if (!isset($columns['is_archived'])) {
+        $conn->query('ALTER TABLE residents ADD COLUMN is_archived TINYINT(1) NOT NULL DEFAULT 0 AFTER resident_status');
+    }
+    if (!isset($columns['archived_at'])) {
+        $conn->query('ALTER TABLE residents ADD COLUMN archived_at DATETIME DEFAULT NULL AFTER is_archived');
+    }
+    if (!isset($columns['archived_by_user_id'])) {
+        $conn->query('ALTER TABLE residents ADD COLUMN archived_by_user_id INT UNSIGNED DEFAULT NULL AFTER archived_at');
+    }
+    if ($conn->query("SHOW INDEX FROM residents WHERE Key_name = 'idx_residents_archive_status'")->num_rows === 0) {
+        $conn->query('ALTER TABLE residents ADD KEY idx_residents_archive_status (is_archived, resident_status)');
+    }
+}
+
 /**
  * Voter status lives only in residents.voter_status. Older records ticked a
  * "Registered Voter" category instead; move those over and drop the category.
@@ -1375,6 +1398,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     runDatabaseMigration(static fn () => ensureAppointmentManagementColumns($GLOBALS['conn']), 'appointment management columns');
     runDatabaseMigration(static fn () => ensureCertificateRequesterColumns($GLOBALS['conn']), 'certificate requester columns');
     runDatabaseMigration(static fn () => ensureCertificateManagementColumns($GLOBALS['conn']), 'certificate archive columns');
+    runDatabaseMigration(static fn () => ensureResidentArchiveColumns($GLOBALS['conn']), 'resident archive columns');
     runDatabaseMigration(static fn () => migrateRegisteredVoterCategory($GLOBALS['conn']), 'registered voter migration');
     runDatabaseMigration(static fn () => expireOfficialTerms($GLOBALS['conn']), 'official terms');
     runDatabaseMigration(static fn () => ensureAdminSessionLockTable($GLOBALS['conn']), 'administrator session lock');
