@@ -212,6 +212,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $householdId = (string)$currentResident['household_id'];
                 clearHouseholdHeadReferences($conn, $householdId, $formerHeadName);
             }
+            if ($isDeceased) {
+                setResidentAccountStatus($conn, $postId, 'Inactive');
+            }
 
             $conn->commit();
             $transactionStarted = false;
@@ -267,6 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($isDeceased) {
                 clearHouseholdHeadReferences($conn, $requestedHouseholdId, $deceasedName);
+                setResidentAccountStatus($conn, $newResidentId, 'Inactive');
             }
             $conn->commit();
             $transactionStarted = false;

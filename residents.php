@@ -3,6 +3,7 @@ require_once __DIR__ . '/layout.php';
 
 $search = trim($_GET['search'] ?? '');
 $statusFilter = $_GET['status_filter'] ?? 'all';
+$isAdmin = ($_SESSION['role'] ?? '') === 'admin';
 $canManageResidents = in_array($_SESSION['role'] ?? '', ['admin', 'staff'], true);
 $recordView = $canManageResidents && ($_GET['record_view'] ?? 'active') === 'archived' ? 'archived' : 'active';
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -30,21 +31,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
         exit;
     }
 
-    if ($isRestore) {
-        $stmt = $conn->prepare("UPDATE residents SET is_archived = 0, archived_at = NULL, archived_by_user_id = NULL WHERE id = ? AND is_archived = 1 AND LOWER(TRIM(COALESCE(resident_status, ''))) <> 'deceased'");
-        $stmt->bind_param('i', $residentId);
-        $activity = 'restored';
-        $message = 'Resident record restored.';
-    } else {
-        $userId = (int)$_SESSION['user_id'];
-        $stmt = $conn->prepare('UPDATE residents SET is_archived = 1, archived_at = NOW(), archived_by_user_id = ? WHERE id = ? AND is_archived = 0');
-        $stmt->bind_param('ii', $userId, $residentId);
-        $activity = 'archived';
-        $message = 'Resident record archived.';
+    $transactionStarted = false;
+    try {
+        $conn->begin_transaction();
+        $transactionStarted = true;
+        if ($isRestore) {
+            $stmt = $conn->prepare("UPDATE residents SET is_archived = 0, archived_at = NULL, archived_by_user_id = NULL WHERE id = ? AND is_archived = 1 AND LOWER(TRIM(COALESCE(resident_status, ''))) <> 'deceased'");
+            $stmt->bind_param('i', $residentId);
+            $activity = 'restored';
+            $message = 'Resident record restored.';
+        } else {
+            $userId = (int)$_SESSION['user_id'];
+            $stmt = $conn->prepare('UPDATE residents SET is_archived = 1, archived_at = NOW(), archived_by_user_id = ? WHERE id = ? AND is_archived = 0');
+            $stmt->bind_param('ii', $userId, $residentId);
+            $activity = 'archived';
+            $message = 'Resident record archived.';
+        }
+        $stmt->execute();
+        $changed = $stmt->affected_rows === 1;
+        $stmt->close();
+
+        if ($changed) {
+            setResidentAccountStatus($conn, $residentId, $isRestore ? 'Active' : 'Inactive');
+        }
+        $conn->commit();
+        $transactionStarted = false;
+    } catch (Throwable $exception) {
+        if ($transactionStarted) {
+            $conn->rollback();
+        }
+        error_log('Resident archive status update failed: ' . $exception->getMessage());
+        $changed = false;
     }
-    $stmt->execute();
-    $changed = $stmt->affected_rows === 1;
-    $stmt->close();
 
     if ($changed) {
         logActivity($conn, $activity, 'residents', $message, $residentId);
@@ -57,27 +75,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
 }
 
 $fields = $isHealthWorker
-    ? 'id, resident_number, first_name, middle_name, last_name, resident_status, blood_type_health, medical_condition, categories'
-    : 'id, resident_number, first_name, middle_name, last_name, resident_status, mobile_number, email';
+    ? 'r.id, r.resident_number, r.first_name, r.middle_name, r.last_name, r.resident_status, r.blood_type_health, r.medical_condition, r.categories'
+    : 'r.id, r.resident_number, r.first_name, r.middle_name, r.last_name, r.resident_status, r.mobile_number, r.email';
+$accountStatusField = $isAdmin
+    ? ", COALESCE((SELECT account.status FROM users account WHERE account.resident_id = r.id AND account.role = 'resident' ORDER BY account.id DESC LIMIT 1), 'No account') AS account_status"
+    : '';
 
-$whereSql = ' WHERE is_archived = ?';
+$whereSql = ' WHERE r.is_archived = ?';
 $params = [$recordView === 'archived' ? 1 : 0];
 $types = 'i';
 
 if ($search !== '') {
     $searchLike = '%' . $search . '%';
-    $whereSql .= ' AND (first_name LIKE ? OR last_name LIKE ? OR resident_number LIKE ? OR email LIKE ? OR mobile_number LIKE ?)';
+    $whereSql .= ' AND (r.first_name LIKE ? OR r.last_name LIKE ? OR r.resident_number LIKE ? OR r.email LIKE ? OR r.mobile_number LIKE ?)';
     array_push($params, $searchLike, $searchLike, $searchLike, $searchLike, $searchLike);
     $types .= 'sssss';
 }
 
 if ($statusFilter !== 'all') {
-    $whereSql .= ' AND resident_status = ?';
+    $whereSql .= ' AND r.resident_status = ?';
     $params[] = $statusFilter;
     $types .= 's';
 }
 
-$countStmt = $conn->prepare('SELECT COUNT(*) FROM residents' . $whereSql);
+$countStmt = $conn->prepare('SELECT COUNT(*) FROM residents r' . $whereSql);
 if ($params !== []) {
     bindPreparedParams($countStmt, $types, $params);
 }
@@ -88,7 +109,7 @@ $totalPages = max(1, (int)ceil($totalResidentsCount / $perPage));
 $page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
 
-$residentsStmt = $conn->prepare("SELECT $fields FROM residents $whereSql ORDER BY resident_number ASC LIMIT ? OFFSET ?");
+$residentsStmt = $conn->prepare("SELECT $fields$accountStatusField FROM residents r $whereSql ORDER BY r.resident_number ASC LIMIT ? OFFSET ?");
 if ($params !== []) {
     $bindParams = $params;
     $bindParams[] = $perPage;
@@ -829,6 +850,9 @@ $generatedResidentNumber = nextResidentNumber($conn);
                                 <th scope="col">Mobile</th>
                                 <th scope="col">Email</th>
                             <?php endif; ?>
+                            <?php if ($isAdmin): ?>
+                                <th scope="col">Account Status</th>
+                            <?php endif; ?>
                             <th scope="col">Action</th>
                         </tr>
                     </thead>
@@ -837,7 +861,7 @@ $generatedResidentNumber = nextResidentNumber($conn);
 
                         <?php if ($residents->num_rows === 0): ?>
                             <tr>
-                                <td colspan="<?php echo $isHealthWorker ? '7' : '6'; ?>">No resident records found.</td>
+                                <td colspan="<?php echo $isHealthWorker ? '7' : ($isAdmin ? '7' : '6'); ?>">No resident records found.</td>
                             </tr>
                         <?php else: ?>
                             <?php while ($resident = $residents->fetch_assoc()): ?>
@@ -856,6 +880,13 @@ $generatedResidentNumber = nextResidentNumber($conn);
                                     <?php else: ?>
                                         <td><?php echo h($resident['mobile_number']); ?></td>
                                         <td><?php echo h($resident['email']); ?></td>
+                                    <?php endif; ?>
+                                    <?php if ($isAdmin): ?>
+                                        <?php
+                                        $accountStatus = (string)$resident['account_status'];
+                                        $accountStatusClass = strtolower(str_replace(' ', '-', $accountStatus));
+                                        ?>
+                                        <td><span class="resident-account-status <?php echo h($accountStatusClass); ?>"><?php echo h($accountStatus); ?></span></td>
                                     <?php endif; ?>
                                     <td>
                                         <div class="action-group resident-action-group">

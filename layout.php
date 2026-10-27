@@ -336,6 +336,25 @@ function clearHouseholdHeadReferences(mysqli $conn, string $householdNumber, str
     }
 }
 
+function setResidentAccountStatus(mysqli $conn, int $residentId, string $status): void {
+    if ($residentId <= 0 || !in_array($status, ['Active', 'Inactive'], true)) {
+        throw new InvalidArgumentException('Invalid resident account status update.');
+    }
+
+    if ($status === 'Inactive') {
+        $stmt = $conn->prepare("UPDATE users SET status = ? WHERE resident_id = ? AND role = 'resident' AND status IN (?, ?)");
+        $activeStatus = 'Active';
+        $unverifiedStatus = 'Unverified';
+        $stmt->bind_param('siss', $status, $residentId, $activeStatus, $unverifiedStatus);
+    } else {
+        $inactiveStatus = 'Inactive';
+        $stmt = $conn->prepare("UPDATE users SET status = ? WHERE resident_id = ? AND role = 'resident' AND status = ?");
+        $stmt->bind_param('sis', $status, $residentId, $inactiveStatus);
+    }
+    $stmt->execute();
+    $stmt->close();
+}
+
 /**
  * Suggests known household heads while typing in $headInputId, and when one is
  * picked fills the household fields in $fieldIds (id, members, type, income => input id).

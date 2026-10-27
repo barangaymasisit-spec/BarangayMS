@@ -283,6 +283,14 @@ function ensureResidentArchiveColumns(mysqli $conn): void {
             household_id = NULL, household_head = NULL, relationship_head = NULL
         WHERE LOWER(TRIM(COALESCE(resident_status, ''))) = 'deceased'
             AND (is_archived = 0 OR archived_at IS NULL OR household_id IS NOT NULL)");
+    if (databaseTableExists($conn, 'users')) {
+        $conn->query("UPDATE users account
+            INNER JOIN residents resident ON resident.id = account.resident_id
+            SET account.status = 'Inactive'
+            WHERE account.role = 'resident'
+                AND account.status IN ('Active', 'Unverified')
+                AND resident.is_archived = 1");
+    }
 }
 
 /**

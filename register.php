@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Remove old unconfirmed accounts left by the previous email-link flow.
             $conn->query("DELETE FROM users WHERE status = 'Unverified' AND created_at < UTC_TIMESTAMP() - INTERVAL 1 DAY");
 
-            $stmt = $conn->prepare('SELECT id FROM residents WHERE resident_number = ? AND first_name = ? AND last_name = ? AND email = ? LIMIT 1');
+            $stmt = $conn->prepare('SELECT id FROM residents WHERE resident_number = ? AND first_name = ? AND last_name = ? AND email = ? AND is_archived = 0 LIMIT 1');
             $stmt->bind_param('ssss', $old['resident_number'], $old['first_name'], $old['last_name'], $old['email']);
             $stmt->execute();
             $residentExists = $stmt->get_result()->fetch_assoc();

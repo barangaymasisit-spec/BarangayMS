@@ -771,6 +771,35 @@ input[type="checkbox"]{
     color:#C62828;
 }
 
+.resident-account-status{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding:6px 11px;
+    border-radius:30px;
+    background:#ECEFF1;
+    color:#455A64;
+    font-size:12px;
+    font-weight:600;
+    white-space:nowrap;
+}
+
+.resident-account-status.active{
+    background:#E8F5E9;
+    color:#2E7D32;
+}
+
+.resident-account-status.inactive,
+.resident-account-status.archived{
+    background:#FFF3E0;
+    color:#A65B00;
+}
+
+.resident-account-status.unverified{
+    background:#E3F2FD;
+    color:#1565C0;
+}
+
 .action-group{
     display:flex;
     gap:8px;
